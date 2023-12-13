@@ -24,6 +24,7 @@ impl Plugin for PawnPlugin {
             .init_resource::<EnemyWave>()
             .register_type::<components::Pawn>()
             .add_event::<SpawnPawnRequestEvent>()
+            .add_event::<RequestWorkOrder>()
             // setup systems scheduling
             .configure_sets(
                 Update,
@@ -94,6 +95,11 @@ pub struct WorkQueue {
 
 #[derive(Event, Debug)]
 pub struct SpawnPawnRequestEvent;
+
+#[derive(Event, Debug)]
+pub struct RequestWorkOrder {
+
+}
 
 #[derive(Resource)]
 pub struct EnemyWave {

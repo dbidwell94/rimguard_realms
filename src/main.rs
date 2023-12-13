@@ -5,6 +5,7 @@ mod assets;
 mod factory;
 mod navmesh;
 mod pawn;
+mod placeable;
 mod stone;
 mod ui;
 mod utils;
@@ -79,6 +80,7 @@ fn main() {
             factory::FactoryPlugin,
             ui::UIPlugin,
             navmesh::NavmeshPlugin,
+            placeable::PlaceablePlugin,
         ))
         .add_systems(OnEnter(GameState::WorldSpawn), build_map)
         .add_systems(

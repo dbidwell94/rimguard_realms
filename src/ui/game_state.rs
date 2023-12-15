@@ -1,5 +1,5 @@
 use super::styles::*;
-use crate::{pawn::SpawnPawnRequestEvent, GameResources, GameState};
+use crate::{pawn::SpawnPawnRequestEvent, GameResources, GameState, WorldInteraction};
 use bevy::prelude::*;
 use bevy_ui_dsl::*;
 
@@ -71,9 +71,11 @@ fn game_state_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 button(spawn_menu_button(Some("objects/pawns/pawn.png")), p, |_| {})
                     .set(&mut pawn_spawn_button);
                 // wall spawn button
-                button(spawn_menu_button(None), p, |p| {
-                    text("Wall", (), (), p);
-                })
+                button(
+                    spawn_menu_button(Some("objects/walls/wallStone.png")),
+                    p,
+                    |_| {},
+                )
                 .set(&mut wall_spawn_button);
                 // turret spawn button
                 button(
@@ -140,15 +142,21 @@ fn listen_for_spawn_pawn(
     }
 }
 
-fn listen_for_wall_spawn(wall_spawn_button: Query<&Interaction, With<WallSpawnButton>>) {
+fn listen_for_wall_spawn(
+    wall_spawn_button: Query<&Interaction, (With<WallSpawnButton>, Changed<Interaction>)>,
+    mut update_world_state: ResMut<NextState<WorldInteraction>>,
+) {
     for interaction in wall_spawn_button.iter() {
         if let Interaction::Pressed = interaction {
+            update_world_state.set(WorldInteraction::Placing);
             // TODO! Spawn a wall here
         }
     }
 }
 
-fn listen_for_turret_spawn(turret_spawn_button: Query<&Interaction, With<TurretSpawnButton>>) {
+fn listen_for_turret_spawn(
+    turret_spawn_button: Query<&Interaction, (With<TurretSpawnButton>, Changed<Interaction>)>,
+) {
     for interaction in turret_spawn_button.iter() {
         if let Interaction::Pressed = interaction {
             // TODO! Spawn a turret here

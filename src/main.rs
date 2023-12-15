@@ -6,6 +6,7 @@ mod factory;
 mod navmesh;
 mod pawn;
 mod placeable;
+mod selectable;
 mod stone;
 mod ui;
 mod utils;
@@ -14,7 +15,10 @@ use assets::{DirtTile, GameAssets, GroundBase};
 use bevy::{asset::AssetMetaCheck, prelude::*, window::PrimaryWindow};
 use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 use bevy_easings::*;
-use bevy_inspector_egui::quick::FilterQueryInspectorPlugin;
+use bevy_inspector_egui::{
+    bevy_egui::{EguiContext, EguiMousePosition},
+    quick::FilterQueryInspectorPlugin,
+};
 use leafwing_input_manager::{axislike::VirtualAxis, prelude::*};
 use noisy_bevy::simplex_noise_2d_seeded;
 use rand::prelude::*;
@@ -40,11 +44,24 @@ pub enum GameState {
     Paused,
 }
 
+#[derive(States, Debug, Hash, PartialEq, Eq, Clone)]
+pub enum WorldInteraction {
+    Selecting,
+    Placing,
+}
+
+impl Default for WorldInteraction {
+    fn default() -> Self {
+        Self::Selecting
+    }
+}
+
 #[derive(Actionlike, Reflect, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Input {
     Pan,
     Zoom,
     Select,
+    Interact,
     Debug,
     DebugSpawnPawn,
     Pause,
@@ -53,9 +70,11 @@ pub enum Input {
 fn main() {
     App::new()
         .add_state::<GameState>()
+        .add_state::<WorldInteraction>()
         .add_loading_state(
             LoadingState::new(GameState::Loading).continue_to_state(GameState::WorldSpawn),
         )
+        .add_event::<CameraSelectedEvent>()
         .insert_resource(AssetMetaCheck::Never)
         .add_plugins((
             DefaultPlugins
@@ -71,7 +90,7 @@ fn main() {
                 }),
             GameAssets,
             #[cfg(debug_assertions)]
-            FilterQueryInspectorPlugin::<With<pawn::components::Pawn>>::default(),
+            FilterQueryInspectorPlugin::<With<selectable::Selected>>::default(),
         ))
         .add_plugins(InputManagerPlugin::<Input>::default())
         .add_plugins((
@@ -81,6 +100,7 @@ fn main() {
             ui::UIPlugin,
             navmesh::NavmeshPlugin,
             placeable::PlaceablePlugin,
+            selectable::SelectablePlugin,
         ))
         .add_systems(OnEnter(GameState::WorldSpawn), build_map)
         .add_systems(
@@ -97,7 +117,9 @@ fn main() {
                 camera_interactions.run_if(in_state(GameState::Main).or_else(
                     in_state(GameState::FactoryPlacement).or_else(in_state(GameState::Paused)),
                 )),
-                selection_gizmo.after(camera_interactions),
+                selection_gizmo
+                    .after(camera_interactions)
+                    .run_if(in_state(WorldInteraction::Selecting)),
             ),
         )
         .init_resource::<WorldNoise>()
@@ -107,17 +129,23 @@ fn main() {
 }
 
 #[derive(Component)]
-struct CameraMetadata {
+pub struct CameraMetadata {
     pub target: Vec3,
     pub zoom: f32,
     /// The world position of the mouse when the user started clicking and where the user is dragging to. None if the user is not dragging.
     pub selection_world_bounds: Option<(Vec2, Vec2)>,
 }
 
+#[derive(Event, Debug)]
+pub struct CameraSelectedEvent {
+    pub upper_left: Vec2,
+    pub lower_right: Vec2,
+}
+
 #[derive(Resource)]
 pub struct WorldNoise {
-    pub base_world: [[f32; SIZE]; SIZE],
-    pub base_resources: [[f32; SIZE]; SIZE],
+    pub base_world: Vec<Vec<f32>>,
+    pub base_resources: Vec<Vec<f32>>,
     pub seed: f32,
     pub offset: u16,
 }
@@ -125,8 +153,8 @@ pub struct WorldNoise {
 impl Default for WorldNoise {
     fn default() -> Self {
         Self {
-            base_world: [[0.0; SIZE]; SIZE],
-            base_resources: [[0.0; SIZE]; SIZE],
+            base_world: vec![vec![0.0; SIZE]; SIZE],
+            base_resources: vec![vec![0.0; SIZE]; SIZE],
             seed: random::<f32>(),
             offset: random::<u16>(),
         }
@@ -194,6 +222,7 @@ pub fn build_map(
                     Input::Zoom,
                 )
                 .insert(MouseButton::Left, Input::Select)
+                .insert(MouseButton::Right, Input::Interact)
                 .insert(KeyCode::Grave, Input::Debug)
                 .insert(KeyCode::Escape, Input::Pause)
                 .insert(KeyCode::Numpad0, Input::DebugSpawnPawn)
@@ -231,7 +260,7 @@ pub fn build_map(
 }
 
 fn get_dirt_texture_facing_grass(
-    base_world: &[[f32; SIZE]; SIZE],
+    base_world: &Vec<Vec<f32>>,
     x: &usize,
     y: &usize,
 ) -> TextureAtlasSprite {
@@ -326,7 +355,7 @@ fn get_dirt_texture_facing_grass(
 
 fn spawn_world_tiles(
     commands: &mut Commands,
-    base_world: &[[f32; SIZE]; SIZE],
+    base_world: &Vec<Vec<f32>>,
     asset_server: &Res<AssetServer>,
     dirt_texture: &Res<GroundBase>,
     navmesh: &mut ResMut<navmesh::components::Navmesh>,
@@ -401,6 +430,7 @@ fn camera_interactions(
     q_window: Query<&Window, With<PrimaryWindow>>,
     input: Query<&ActionState<Input>>,
     time: Res<Time>,
+    mut camera_selected_bounds_event_writer: EventWriter<CameraSelectedEvent>,
 ) {
     let delta = time.delta_seconds();
     let Ok((mut projection, mut transform, mut camera_target, camera, global_camera_transform)) =
@@ -457,6 +487,34 @@ fn camera_interactions(
             camera_target.selection_world_bounds = Some((world_pos, world_pos));
         }
     } else {
+        if let Some(bounds) = &camera_target.selection_world_bounds {
+            // extract upper left and lower right from bounds, verifying that they are in the correct positions.
+            let (upper_left, lower_right) = if bounds.0.x < bounds.1.x {
+                if bounds.0.y < bounds.1.y {
+                    (bounds.0, bounds.1)
+                } else {
+                    (
+                        Vec2::new(bounds.0.x, bounds.1.y),
+                        Vec2::new(bounds.1.x, bounds.0.y),
+                    )
+                }
+            } else {
+                if bounds.0.y < bounds.1.y {
+                    (
+                        Vec2::new(bounds.1.x, bounds.0.y),
+                        Vec2::new(bounds.0.x, bounds.1.y),
+                    )
+                } else {
+                    (bounds.1, bounds.0)
+                }
+            };
+
+            // if we have a selection, send an event
+            camera_selected_bounds_event_writer.send(CameraSelectedEvent {
+                lower_right,
+                upper_left,
+            });
+        }
         camera_target.selection_world_bounds = None;
     }
 }

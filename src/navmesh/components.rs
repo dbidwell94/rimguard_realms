@@ -1,6 +1,5 @@
-use bevy::{prelude::*, utils::HashSet};
-
 use crate::SIZE;
+use bevy::{prelude::*, utils::HashSet};
 
 #[derive(Debug, Default, Resource)]
 pub struct ToggleNavmeshDebug(pub bool);
@@ -13,13 +12,19 @@ pub struct NavTileOccupant {
 }
 
 #[derive(Resource)]
-pub struct Navmesh(pub [[NavTileOccupant; SIZE]; SIZE]);
+pub struct Navmesh(pub Vec<Vec<NavTileOccupant>>);
 
 impl Default for Navmesh {
     fn default() -> Self {
-        Self(std::array::from_fn(|_| {
-            std::array::from_fn(|_| NavTileOccupant::default())
-        }))
+        let to_return = (0..SIZE)
+            .map(|_| {
+                (0..SIZE)
+                    .map(|_| NavTileOccupant::default())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        Self(to_return)
     }
 }
 

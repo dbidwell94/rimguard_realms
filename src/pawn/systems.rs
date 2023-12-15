@@ -5,6 +5,7 @@ use crate::factory::components::{Factory, Placed};
 use crate::navmesh::components::{NavTileOccupant, Navmesh, PathfindAnswer, PathfindRequest};
 use crate::navmesh::get_pathing;
 use crate::pawn::components::pawn_status::AddStatus;
+use crate::selectable::Selectable;
 use crate::stone::{Stone, StoneKind};
 use crate::{
     assets::{CharacterFacing, MalePawns},
@@ -73,6 +74,7 @@ fn spawn_pawn_in_random_location(
             },
             pawn_status: PawnStatus(Box::new(pawn_status::Idle)),
             resources: CarriedResources(0),
+            selectable: Selectable,
         },))
         .id();
 
@@ -745,6 +747,7 @@ pub fn spawn_enemy_pawns(
                 },
                 pawn_status: PawnStatus(Box::new(pawn_status::Idle)),
                 resources: CarriedResources(0),
+                selectable: Selectable
             })
             .insert(Enemy)
             .id();

@@ -90,7 +90,7 @@ impl Plugin for PawnPlugin {
 
 #[derive(Resource, Default)]
 pub struct WorkQueue {
-    pub build_queue: VecDeque<WorkOrder<BuildItem>>,
+    pub build_queue: VecDeque<WorkOrder<dyn components::work_order::OrderItem>>,
 }
 
 #[derive(Event, Debug)]

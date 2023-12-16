@@ -1,9 +1,5 @@
 use bevy::{ecs::system::EntityCommands, prelude::*};
 
-pub enum SelectableType {
-    Pawn(crate::pawn::components::Pawn),
-}
-
 #[derive(Component)]
 pub struct Selectable;
 

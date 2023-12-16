@@ -143,6 +143,21 @@ pub fn place_item_at_location(
         // convert the hashmap above into a Vec of bundles, with the correct transforms applied to them
         let mut bundles = Vec::new();
         for (tile_pos, _) in vectors_to_place {
+            // first, ensure tile is walkable
+            let nav_tile = &navmesh.0[tile_pos.x][tile_pos.y];
+            if !nav_tile.walkable {
+                continue;
+            }
+            let nav_tile_is_wall = nav_tile
+                .occupied_by
+                .iter()
+                .any(|entity| q_walls.get_component::<Placeable<Wall>>(*entity).is_ok());
+
+            // if the tile is a wall, and the item is not placeable on a wall, skip it
+            if nav_tile_is_wall && !item.placeable.0.placeable_on_wall() {
+                continue;
+            }
+
             let tile_pos_vec = tile_pos.to_vec2();
             let tile_pos_world = tile_pos_vec.tile_pos_to_world();
 

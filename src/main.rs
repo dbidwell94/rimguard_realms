@@ -572,7 +572,10 @@ fn selection_gizmo(mut gizmos: Gizmos, camera_metadata: Query<&CameraMetadata, W
 
 fn toggle_paused(
     mut change_game_state: ResMut<NextState<GameState>>,
+    mut change_world_interaction_state: ResMut<NextState<WorldInteraction>>,
+    mut placeable_item: ResMut<placeable::CurrentPlaceableItem>,
     game_state: Res<State<GameState>>,
+    world_interaction_state: Res<State<WorldInteraction>>,
     input: Query<&ActionState<Input>>,
 ) {
     let Ok(input) = input.get_single() else {
@@ -580,6 +583,13 @@ fn toggle_paused(
     };
 
     if input.just_pressed(Input::Pause) {
+        // Clear the placeable item if we are placing, don't pause unless we are in the "selecting" state
+        if let WorldInteraction::Placing = world_interaction_state.get() {
+            change_world_interaction_state.set(WorldInteraction::Selecting);
+            placeable_item.0 = None;
+            return;
+        }
+
         match game_state.get() {
             GameState::Paused => change_game_state.set(GameState::Main),
             GameState::Main => change_game_state.set(GameState::Paused),

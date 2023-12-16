@@ -1,5 +1,6 @@
 pub mod components;
 mod systems;
+mod work_orders;
 
 use crate::GameState;
 use bevy::prelude::*;
@@ -18,7 +19,8 @@ pub struct PawnPlugin;
 
 impl Plugin for PawnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::PawnSpawn), systems::initial_pawn_spawn)
+        app.add_plugins(work_orders::WorkOrderPlugin)
+            .add_systems(OnEnter(GameState::PawnSpawn), systems::initial_pawn_spawn)
             .init_resource::<WorkQueue>()
             .init_resource::<EnemyWave>()
             .register_type::<components::Pawn>()
@@ -89,9 +91,7 @@ impl Plugin for PawnPlugin {
 
 #[derive(Resource, Default)]
 pub struct WorkQueue {
-    pub build_queue: VecDeque<
-        crate::placeable::components::Placeable<dyn crate::placeable::components::PlaceableItem>,
-    >,
+    pub build_queue: VecDeque<Entity>,
 }
 
 #[derive(Event, Debug)]

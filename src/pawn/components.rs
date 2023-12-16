@@ -37,7 +37,7 @@ pub struct PawnBundle<T: Component + pawn_status::Status> {
     pub pawn: Pawn,
     pub pawn_status: pawn_status::PawnStatus<T>,
     pub resources: CarriedResources,
-    pub selectable: Selectable
+    pub selectable: Selectable,
 }
 
 #[derive(Component)]
@@ -90,7 +90,8 @@ pub mod pawn_status {
         PathfindingError,
         Moving,
         Mining,
-        Attacking
+        Attacking,
+        Building
     );
 }
 
@@ -165,6 +166,9 @@ pub mod work_order {
             stone_entity: Entity,
         },
         struct ReturnToFactory {},
+        struct PickupStoneFromFactory {
+            for_entity: Entity,
+        },
         struct BuildItem {
             item_entity: Entity,
         },

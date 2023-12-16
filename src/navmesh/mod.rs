@@ -1,9 +1,15 @@
 pub mod components;
 pub mod systems;
+mod utils;
 
 use self::components::{PathfindAnswer, PathfindRequest, ToggleNavmeshDebug};
 use bevy::prelude::*;
-pub use {components::Navmesh, systems::get_pathing};
+pub use components::Navmesh;
+
+pub mod prelude {
+    pub use super::components::*;
+    pub use super::utils::get_pathing;
+}
 
 #[derive(SystemSet, Hash, Debug, Clone, Eq, PartialEq)]
 pub enum NavmeshSystemSet {

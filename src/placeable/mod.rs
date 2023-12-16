@@ -34,8 +34,8 @@ impl Plugin for PlaceablePlugin {
             .add_systems(
                 Update,
                 (
-                    systems::place_item_at_location,
                     systems::update_zoop_location,
+                    systems::place_item_at_location,
                 )
                     .chain()
                     .run_if(in_state(WorldInteraction::Placing)),

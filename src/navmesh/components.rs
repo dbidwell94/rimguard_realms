@@ -1,5 +1,6 @@
+use crate::utils::*;
 use crate::SIZE;
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{ecs::query::ReadOnlyWorldQuery, prelude::*, utils::HashSet};
 
 #[derive(Debug, Default, Resource)]
 pub struct ToggleNavmeshDebug(pub bool);
@@ -33,6 +34,31 @@ pub struct PathfindRequest {
     pub start: Vec2,
     pub end: Vec2,
     pub entity: Entity,
+}
+
+pub type PathfindingQuery<'world, 'state> = Query<'world, 'state, Entity>;
+
+impl PathfindRequest {
+    pub fn from_query(
+        requesting: Entity,
+        to_entity: Entity,
+        query: &PathfindingQuery,
+    ) -> Option<Self> {
+        let requesting_transform = query.get_component::<Transform>(requesting).ok()?;
+        let to_entity_transform = query.get_component::<Transform>(to_entity).ok()?;
+
+        Some(Self {
+            start: requesting_transform
+                .translation
+                .truncate()
+                .world_pos_to_tile(),
+            end: to_entity_transform
+                .translation
+                .truncate()
+                .world_pos_to_tile(),
+            entity: requesting,
+        })
+    }
 }
 
 #[derive(Debug, Event)]

@@ -1,6 +1,6 @@
 use super::{components::*, RequestPlacementEvent};
 use crate::utils::*;
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::hashbrown::HashMap};
 use leafwing_input_manager::prelude::*;
 
 const PLACING_Z_INDEX: f32 = 2.;
@@ -79,15 +79,15 @@ pub fn update_zoop_location(
 // Also: place on top of wall if `<dyn PlaceableItem>.placeable_on_wall()` is true
 pub fn place_item_at_location(
     mut commands: Commands,
-    (cursor_pos, zoop_start_location, placeable_item, navmesh): (
+    (cursor_pos, mut zoop_start_location, placeable_item, navmesh): (
         Res<crate::CursorPosition>,
-        Res<super::ZoopStartLocation>,
+        ResMut<super::ZoopStartLocation>,
         Res<super::CurrentPlaceableItem>,
         Res<crate::navmesh::Navmesh>,
     ),
     q_input: Query<&ActionState<crate::Input>>,
     q_walls: Query<&Placeable<Wall>>,
-    q_temp_placeable: Query<Entity, (With<NowPlacing>, With<TempPlaceholder>)>,
+    q_temp_placeable: Query<(Entity, &Transform), (With<NowPlacing>, With<TempPlaceholder>)>,
     mut request_placement: EventWriter<RequestPlacementEvent>,
 ) {
     let Ok(input) = q_input.get_single() else {
@@ -105,7 +105,6 @@ pub fn place_item_at_location(
 
     // check if the item is tileable
     let is_tileable = item.placeable.0.is_tileable();
-    let placeable_on_wall = item.placeable.0.placeable_on_wall();
 
     // get a straight line from the zoop start location to the cursor location, using the greater of x or y as the direction
 
@@ -117,4 +116,78 @@ pub fn place_item_at_location(
     } else {
         (zoop_start, Vec2::new(zoop_start.x, cursor_pos.y))
     };
+
+    let placement_direction = (end - start).normalize_or_zero();
+
+    let mut vectors_to_place = if is_tileable {
+        // get all the vectors between the start and end
+        let mut vectors_to_place = HashMap::new();
+
+        let mut current = start;
+        while current != end {
+            vectors_to_place.insert(GridPos::from_tile_pos_vec(current), false);
+            current += placement_direction;
+        }
+        vectors_to_place.insert(GridPos::from_tile_pos_vec(end), false);
+        vectors_to_place
+    } else {
+        let mut vectors_to_place = HashMap::new();
+        vectors_to_place.insert(GridPos::from_tile_pos_vec(end), false);
+        vectors_to_place
+    };
+
+    // If we release the mouse button, we want to place the item(s) using the event, and discontinue all below logic
+    if input.just_released(crate::Input::Select) {
+        zoop_start_location.0 = None;
+
+        // convert the hashmap above into a Vec of bundles, with the correct transforms applied to them
+        let mut bundles = Vec::new();
+        for (tile_pos, _) in vectors_to_place {
+            let tile_pos_vec = tile_pos.to_vec2();
+            let tile_pos_world = tile_pos_vec.tile_pos_to_world();
+
+            let mut bundle = item.clone_bundle_dyn();
+
+            // Change transform to be at the tile_pos
+            bundle.sprite_bundle.transform.translation = tile_pos_world.extend(PLACING_Z_INDEX);
+            bundles.push(bundle);
+        }
+
+        request_placement.send(RequestPlacementEvent(bundles));
+
+        return;
+    }
+
+    // loop though q_temp_placeable and check if any of the entities are in the vectors_to_place
+    for (entity, transform) in &q_temp_placeable {
+        // if they are not, despawn
+        let tile_pos = GridPos::from_world_pos_vec(transform.translation.truncate());
+        if !vectors_to_place.contains_key(&tile_pos) {
+            commands.entity(entity).despawn_recursive();
+        } else {
+            // Not worried about `unwrap()` here because we already checked to see if it exists above
+            *(vectors_to_place.get_mut(&tile_pos).unwrap()) = true;
+        }
+    }
+
+    // loop through the vectors_to_place and spawn any that are not already spawned
+    for (tile_pos, is_spawned) in vectors_to_place {
+        if is_spawned {
+            continue;
+        }
+        let tile_pos_vec = tile_pos.to_vec2();
+        let tile_pos_world = tile_pos_vec.tile_pos_to_world();
+
+        let mut bundle = item.clone_bundle_dyn();
+
+        // Change the sprite color to be more transparent (to indicate that we are placing)
+        bundle.sprite_bundle.sprite.color = Color::rgba(1., 1., 1., 0.85);
+
+        // Change transform to be at the tile_pos
+        bundle.sprite_bundle.transform.translation = tile_pos_world.extend(PLACING_Z_INDEX);
+
+        // TODO: Check if the tile is walkable
+
+        commands.spawn(bundle).insert((NowPlacing, TempPlaceholder));
+    }
 }

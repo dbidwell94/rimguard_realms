@@ -78,6 +78,18 @@ impl GridPos {
     pub fn to_vec2(&self) -> Vec2 {
         Vec2::new(self.x as f32, self.y as f32)
     }
+
+    pub fn from_tile_pos_vec(tile_pos: Vec2) -> Self {
+        Self {
+            x: tile_pos.x as usize,
+            y: tile_pos.y as usize,
+        }
+    }
+
+    pub fn from_world_pos_vec(world_pos: Vec2) -> Self {
+        let tile_pos_vec = world_pos.world_pos_to_tile();
+        Self::from_tile_pos_vec(tile_pos_vec)
+    }
 }
 
 #[macro_export]

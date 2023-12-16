@@ -6,7 +6,12 @@ pub struct NowPlacing;
 #[derive(Component)]
 pub struct TempPlaceholder;
 
-pub trait PlaceableItem: Sync + Send + ClonePlaceableItem {
+#[derive(Component)]
+/// Used to mark an entity as a built entity. When it is built, navmesh should be updated
+/// to account for the new entity.
+pub struct Built;
+
+pub trait PlaceableItem: Sync + Send + ClonePlaceableItem + PlaceableItemExt {
     fn max_resources(&self) -> usize;
     fn current_resources(&self) -> usize;
     fn set_current_resources(&mut self, resources: usize);

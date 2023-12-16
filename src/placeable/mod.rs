@@ -40,6 +40,10 @@ impl Plugin for PlaceablePlugin {
                 )
                     .chain()
                     .run_if(in_state(WorldInteraction::Placing)),
+            )
+            .add_systems(
+                Update,
+                (systems::handle_built_added, systems::handle_built_removed, systems::add_unbuilt_to_navmesh),
             );
     }
 }

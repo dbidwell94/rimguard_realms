@@ -1,9 +1,6 @@
 use super::{components::*, RequestPlacementEvent};
 use crate::{utils::*, TILE_SIZE};
-use bevy::{
-    prelude::*,
-    utils::hashbrown::{HashMap, HashSet},
-};
+use bevy::{prelude::*, utils::hashbrown::HashSet};
 use leafwing_input_manager::prelude::*;
 
 const PLACING_Z_INDEX: f32 = 2.;
@@ -92,9 +89,9 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
         ResMut<super::ItemGridPlacement>,
     ),
     q_input: Query<&ActionState<crate::Input>>,
-    q_walls: Query<&Placeable<Wall>>,
+    q_walls: Query<&Placeable<dyn PlaceableItem>, Without<Cursor>>,
     mut request_placement: EventWriter<RequestPlacementEvent>,
-    mut gizmos: Gizmos
+    mut gizmos: Gizmos,
 ) {
     let Ok(input) = q_input.get_single() else {
         return;
@@ -190,6 +187,10 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
     if input.just_released(crate::Input::Select) {
         zoop_start_location.0 = None;
 
+        // log the number of walls
+        let num_of_walls = q_walls.iter().count();
+        info!("Number of walls: {}", num_of_walls);
+
         // convert the hashmap above into a Vec of bundles, with the correct transforms applied to them
         let mut bundles = Vec::new();
         for tile_pos in vectors_to_place {
@@ -198,13 +199,20 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
             if !nav_tile.walkable {
                 continue;
             }
-            let nav_tile_is_wall = nav_tile.occupied_by.iter().any(|entity| {
+            let nav_tile_has_wall = nav_tile.occupied_by.iter().any(|entity| {
                 // if the entity exists in this query, it's a wall
-                q_walls.get(*entity).is_ok()
+
+                let Ok(placeable_item) = q_walls.get(*entity) else {
+                    return false;
+                };
+                if let PlaceableType::Wall(_) = placeable_item.0.to_struct() {
+                    return true;
+                }
+                return false;
             });
 
             // if the tile is a wall, and the item is not placeable on a wall, skip it
-            if nav_tile_is_wall && !item.placeable.0.placeable_on_wall() {
+            if nav_tile_has_wall && !item.placeable.0.placeable_on_wall() {
                 continue;
             }
 
@@ -234,5 +242,57 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
             Vec2::new(TILE_SIZE, TILE_SIZE),
             Color::WHITE,
         );
+    }
+}
+
+pub fn handle_built_added(
+    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    q_added: Query<(Entity, &GlobalTransform), Added<Built>>,
+) {
+    for (entity, transform) in &q_added {
+        let tile_pos = transform.translation().world_pos_to_tile();
+
+        let mesh_item = &mut navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
+
+        mesh_item.occupied_by.insert(entity);
+        mesh_item.walkable = false;
+    }
+}
+
+pub fn handle_built_removed(
+    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    mut removed_components: RemovedComponents<Built>,
+    q_placeables: Query<(Entity, &GlobalTransform), With<Placeable<dyn PlaceableItem>>>,
+    q_built: Query<Entity, With<Built>>,
+) {
+    for entity in removed_components.read() {
+        if let Ok((_, transform)) = q_placeables.get(entity) {
+            let tile_pos = transform.translation().world_pos_to_tile();
+
+            let mesh_item = &mut navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
+
+            mesh_item.occupied_by.remove(&entity);
+            // we have a built entity still in this nav tile, we don't want to make it walkable
+            if q_built.get(entity).is_ok() {
+                continue;
+            }
+            mesh_item.walkable = true;
+        }
+    }
+}
+
+pub fn add_unbuilt_to_navmesh(
+    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    q_unbuilt: Query<
+        (Entity, &GlobalTransform),
+        (Without<Built>, Added<Placeable<dyn PlaceableItem>>),
+    >,
+) {
+    for (entity, transform) in &q_unbuilt {
+        let tile_pos = transform.translation().world_pos_to_tile();
+
+        let mesh_item = &mut navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
+
+        mesh_item.occupied_by.insert(entity);
     }
 }

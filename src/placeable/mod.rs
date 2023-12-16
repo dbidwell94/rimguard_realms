@@ -1,14 +1,12 @@
 pub mod components;
 mod systems;
 
-use self::components::{PlaceableBundle, PlaceableItem};
+use self::components::PlaceableBundle;
 use crate::{utils::GridPos, CursorPosition, WorldInteraction};
 use bevy::{prelude::*, utils::HashSet};
 
 pub mod prelude {
-    pub use super::components::{
-        ClonePlaceableItem, PlaceableItem, PlaceableItemExt, PlaceableType,
-    };
+    pub use super::components::{PlaceableItemExt, PlaceableType};
 }
 
 pub struct PlaceablePlugin;
@@ -43,16 +41,20 @@ impl Plugin for PlaceablePlugin {
             )
             .add_systems(
                 Update,
-                (systems::handle_built_added, systems::handle_built_removed, systems::add_unbuilt_to_navmesh),
+                (
+                    systems::handle_built_added,
+                    systems::handle_built_removed,
+                    systems::add_unbuilt_to_navmesh,
+                ),
             );
     }
 }
 
 #[derive(Resource, Default)]
-pub struct CurrentPlaceableItem(pub Option<PlaceableBundle<dyn PlaceableItem>>);
+pub struct CurrentPlaceableItem(pub Option<PlaceableBundle>);
 
 #[derive(Event)]
-pub struct RequestPlacementEvent(pub Vec<PlaceableBundle<dyn PlaceableItem>>);
+pub struct RequestPlacementEvent(pub Vec<PlaceableBundle>);
 
 #[derive(Resource, Default)]
 struct ZoopStartLocation(pub Option<Vec2>);

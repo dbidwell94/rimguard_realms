@@ -26,7 +26,8 @@ pub fn show_placeable_item(
         commands.entity(entity).despawn_recursive();
     }
 
-    let mut to_place = item.clone_bundle_dyn();
+    let mut to_place = item.clone();
+
     to_place.sprite_bundle.transform.translation =
         mouse_pos.tile_pos_to_world().extend(PLACING_Z_INDEX);
 
@@ -89,7 +90,7 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
         ResMut<super::ItemGridPlacement>,
     ),
     q_input: Query<&ActionState<crate::Input>>,
-    q_walls: Query<&Placeable<dyn PlaceableItem>, Without<Cursor>>,
+    q_walls: Query<&PlaceableType, Without<Cursor>>,
     mut request_placement: EventWriter<RequestPlacementEvent>,
     mut gizmos: Gizmos,
 ) {
@@ -107,7 +108,7 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
     };
 
     // check if the item is tileable
-    let is_tileable = item.placeable.0.is_tileable();
+    let is_tileable = item.placeable.is_tileable();
 
     // get a straight line from the zoop start location to the cursor location, using the greater of x or y as the direction
 
@@ -187,10 +188,6 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
     if input.just_released(crate::Input::Select) {
         zoop_start_location.0 = None;
 
-        // log the number of walls
-        let num_of_walls = q_walls.iter().count();
-        info!("Number of walls: {}", num_of_walls);
-
         // convert the hashmap above into a Vec of bundles, with the correct transforms applied to them
         let mut bundles = Vec::new();
         for tile_pos in vectors_to_place {
@@ -205,21 +202,21 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
                 let Ok(placeable_item) = q_walls.get(*entity) else {
                     return false;
                 };
-                if let PlaceableType::Wall(_) = placeable_item.0.to_struct() {
+                if let PlaceableType::Wall(_) = placeable_item {
                     return true;
                 }
                 return false;
             });
 
             // if the tile is a wall, and the item is not placeable on a wall, skip it
-            if nav_tile_has_wall && !item.placeable.0.placeable_on_wall() {
+            if nav_tile_has_wall && !item.placeable.placeable_on_wall() {
                 continue;
             }
 
             let tile_pos_vec = tile_pos.to_vec2();
             let tile_pos_world = tile_pos_vec.tile_pos_to_world();
 
-            let mut bundle = item.clone_bundle_dyn();
+            let mut bundle = item.clone();
 
             // Change transform to be at the tile_pos
             bundle.sprite_bundle.transform.translation = tile_pos_world.extend(PLACING_Z_INDEX);
@@ -262,7 +259,7 @@ pub fn handle_built_added(
 pub fn handle_built_removed(
     mut navmesh: ResMut<crate::navmesh::Navmesh>,
     mut removed_components: RemovedComponents<Built>,
-    q_placeables: Query<(Entity, &GlobalTransform), With<Placeable<dyn PlaceableItem>>>,
+    q_placeables: Query<(Entity, &GlobalTransform), With<PlaceableType>>,
     q_built: Query<Entity, With<Built>>,
 ) {
     for entity in removed_components.read() {
@@ -283,10 +280,7 @@ pub fn handle_built_removed(
 
 pub fn add_unbuilt_to_navmesh(
     mut navmesh: ResMut<crate::navmesh::Navmesh>,
-    q_unbuilt: Query<
-        (Entity, &GlobalTransform),
-        (Without<Built>, Added<Placeable<dyn PlaceableItem>>),
-    >,
+    q_unbuilt: Query<(Entity, &GlobalTransform), (Without<Built>, Added<PlaceableType>)>,
 ) {
     for (entity, transform) in &q_unbuilt {
         let tile_pos = transform.translation().world_pos_to_tile();

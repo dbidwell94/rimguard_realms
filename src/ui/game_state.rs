@@ -165,10 +165,10 @@ fn listen_for_wall_spawn(
                     },
                     ..default()
                 },
-                placeable: placeable_components::Placeable(Box::new(placeable_components::Wall {
-                    current_resources: 0,
+                placeable: placeable_components::PlaceableType::Wall(placeable_components::Wall {
                     max_resources: 50,
-                })),
+                    ..default()
+                }),
             });
         }
     }

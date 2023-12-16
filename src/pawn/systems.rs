@@ -5,6 +5,7 @@ use crate::factory::components::{Factory, Placed};
 use crate::navmesh::components::{NavTileOccupant, Navmesh, PathfindAnswer, PathfindRequest};
 use crate::navmesh::prelude::*;
 use crate::pawn::components::pawn_status::AddStatus;
+use crate::placeable::prelude::PlaceableType;
 use crate::selectable::Selectable;
 use crate::stone::{Stone, StoneKind};
 use crate::{
@@ -139,14 +140,7 @@ pub fn work_idle_pawns(
     >,
     q_stones: Query<Entity, With<StoneKind>>,
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
-    q_placeable: Query<
-        (Entity, &Transform),
-        With<
-            crate::placeable::components::Placeable<
-                dyn crate::placeable::components::PlaceableItem,
-            >,
-        >,
-    >,
+    q_placeable: Query<(Entity, &Transform), With<PlaceableType>>,
     (navmesh, mut work_queue): (Res<Navmesh>, ResMut<super::WorkQueue>),
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
 ) {

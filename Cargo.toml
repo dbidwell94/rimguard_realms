@@ -8,22 +8,22 @@ edition = "2021"
 [dependencies]
 bevy = { version = "0.12", features = ["wayland"] }
 noisy_bevy = "0.5.0"
-rand = "0.8.5"
-leafwing-input-manager = "0.11.2"
+rand = "0.8"
+leafwing-input-manager = "0.11"
 bevy_easings = "0.12"
-bevy_asset_loader = { version = "0.18.0", features = ["2d"] }
-bevy-ui-dsl = "0.7.1"
-pathfinding = "4.4.0"
-bevy-inspector-egui = "0.21.0"
-bevy-trait-query = "0.4.0"
-derivative = "2.2.0"
+bevy_asset_loader = { version = "0.18", features = ["2d"] }
+bevy-ui-dsl = "0.7"
+pathfinding = "4.4"
+bevy-inspector-egui = "0.21"
+bevy-trait-query = "0.4"
+derivative = "2.2"
 
-# [profile.dev.package."*"]
-# opt-level = 3
-# debug = false
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
 
-# [profile.dev]
-# opt-level = 1
+[profile.dev]
+opt-level = 1
 
 [profile.release]
 lto = "thin"

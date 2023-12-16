@@ -1,6 +1,6 @@
 use crate::utils::*;
 use crate::SIZE;
-use bevy::{ecs::query::ReadOnlyWorldQuery, prelude::*, utils::HashSet};
+use bevy::{prelude::*, utils::HashSet};
 
 #[derive(Debug, Default, Resource)]
 pub struct ToggleNavmeshDebug(pub bool);

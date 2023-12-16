@@ -11,27 +11,6 @@ pub struct TempPlaceholder;
 /// to account for the new entity.
 pub struct Built;
 
-pub trait PlaceableItem: Sync + Send + ClonePlaceableItem + PlaceableItemExt {
-    fn max_resources(&self) -> usize;
-    fn current_resources(&self) -> usize;
-    fn set_current_resources(&mut self, resources: usize);
-    fn placeable_on_wall(&self) -> bool;
-    fn is_tileable(&self) -> bool;
-}
-
-pub trait ClonePlaceableItem {
-    fn clone_placeable_item(&self) -> Box<dyn PlaceableItem>;
-}
-
-impl<T> ClonePlaceableItem for T
-where
-    T: 'static + PlaceableItem + Clone,
-{
-    fn clone_placeable_item(&self) -> Box<dyn PlaceableItem> {
-        Box::new(self.clone())
-    }
-}
-
 /// auto create structs and impl PlaceableItem for them.
 /// within struct body, define `placeable_on_wall`, `tileable` and fields.
 /// # Example
@@ -66,35 +45,23 @@ macro_rules! placeables {
                 $(
                     pub $field: $ty,
                 )*
+                pub placeable_on_wall: bool,
+                pub tileable: bool,
                 pub max_resources: usize,
                 pub current_resources: usize,
             }
 
-            impl PlaceableItemExt for $name {
-                fn to_struct(&self) -> PlaceableType {
-                    PlaceableType::$name(self)
-                }
-            }
-
-            impl PlaceableItem for $name {
-                fn max_resources(&self) -> usize {
-                    self.max_resources
-                }
-
-                fn current_resources(&self) -> usize {
-                    self.current_resources
-                }
-
-                fn set_current_resources(&mut self, resources: usize) {
-                    self.current_resources = resources;
-                }
-
-                fn placeable_on_wall(&self) -> bool {
-                    $placeable
-                }
-
-                fn is_tileable(&self) -> bool {
-                    $tileable
+            impl Default for $name {
+                fn default() -> Self {
+                    Self {
+                        $(
+                            $field: Default::default(),
+                        )*
+                        placeable_on_wall: $placeable,
+                        tileable: $tileable,
+                        max_resources: 0,
+                        current_resources: 0,
+                    }
                 }
             }
         )*
@@ -103,16 +70,32 @@ macro_rules! placeables {
             fn to_struct(&self) -> PlaceableType;
         }
 
-        pub enum PlaceableType<'a> {
+        #[derive(Component, Clone)]
+        pub enum PlaceableType {
             $(
-                $name(&'a $name),
+                $name($name),
             )*
+        }
+
+        impl PlaceableType {
+            pub fn is_tileable(&self) -> bool {
+                match self {
+                    $(
+                        PlaceableType::$name(item) => item.tileable,
+                    )*
+                }
+            }
+
+            pub fn placeable_on_wall(&self) -> bool {
+                match self {
+                    $(
+                        PlaceableType::$name(item) => item.placeable_on_wall,
+                    )*
+                }
+            }
         }
     };
 }
-
-#[derive(Component, Clone)]
-pub struct Placeable<T: PlaceableItem + ?Sized>(pub Box<T>);
 
 #[derive(Component)]
 pub struct Tileable;
@@ -129,19 +112,7 @@ placeables! (
 );
 
 #[derive(Bundle, Clone)]
-pub struct PlaceableBundle<T: PlaceableItem + ?Sized + 'static> {
-    pub placeable: Placeable<T>,
+pub struct PlaceableBundle {
+    pub placeable: PlaceableType,
     pub sprite_bundle: SpriteBundle,
-}
-
-impl<T> PlaceableBundle<T>
-where
-    T: PlaceableItem + ?Sized + 'static,
-{
-    pub fn clone_bundle_dyn(&self) -> PlaceableBundle<dyn PlaceableItem> {
-        PlaceableBundle {
-            placeable: Placeable(self.placeable.0.clone_placeable_item()),
-            sprite_bundle: self.sprite_bundle.clone(),
-        }
-    }
 }

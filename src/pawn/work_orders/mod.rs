@@ -18,7 +18,7 @@ fn listen_for_placeable_events(
 ) {
     for event in event_listener.read() {
         for placeable in &event.0 {
-            let mut placeable = placeable.clone_bundle_dyn();
+            let mut placeable = placeable.clone();
             placeable.sprite_bundle.transform.translation.z = 1.0;
 
             let placeable_grid_pos = placeable.sprite_bundle.transform.translation.xy();

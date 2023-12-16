@@ -185,7 +185,7 @@ pub fn build_map(
     dirt_texture: Res<GroundBase>,
     mut navmesh: ResMut<navmesh::components::Navmesh>,
 ) {
-    commands.remove_resource::<bevy::ecs::event::EventUpdateSignal>();
+    // commands.remove_resource::<bevy::ecs::event::EventUpdateSignal>();
     let mut camera_bundle = Camera2dBundle::default();
 
     camera_bundle.projection.scale = 0.50;

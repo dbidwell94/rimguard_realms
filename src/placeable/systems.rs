@@ -1,6 +1,9 @@
 use super::{components::*, RequestPlacementEvent};
 use crate::{utils::*, TILE_SIZE};
-use bevy::{prelude::*, utils::hashbrown::HashMap};
+use bevy::{
+    prelude::*,
+    utils::hashbrown::{HashMap, HashSet},
+};
 use leafwing_input_manager::prelude::*;
 
 const PLACING_Z_INDEX: f32 = 2.;
@@ -80,22 +83,18 @@ pub fn update_zoop_location(
 
 // place item in a walkable location (walkable means the tile is empty and can be placed there)
 // Also: place on top of wall if `<dyn PlaceableItem>.placeable_on_wall()` is true
-pub fn place_item_at_location(
-    mut commands: Commands,
-    (cursor_pos, mut zoop_start_location, placeable_item, navmesh): (
+pub fn populate_item_grid_placement_res_and_send_spawn_event(
+    (cursor_pos, mut zoop_start_location, placeable_item, navmesh, mut locations_to_place): (
         Res<crate::CursorPosition>,
         ResMut<super::ZoopStartLocation>,
         Res<super::CurrentPlaceableItem>,
         Res<crate::navmesh::Navmesh>,
+        ResMut<super::ItemGridPlacement>,
     ),
     q_input: Query<&ActionState<crate::Input>>,
     q_walls: Query<&Placeable<Wall>>,
-    q_temp_placeable: Query<
-        (Entity, &GlobalTransform),
-        (With<NowPlacing>, With<TempPlaceholder>, Without<Cursor>),
-    >,
     mut request_placement: EventWriter<RequestPlacementEvent>,
-    mut gizmos: Gizmos,
+    mut gizmos: Gizmos
 ) {
     let Ok(input) = q_input.get_single() else {
         return;
@@ -109,11 +108,6 @@ pub fn place_item_at_location(
     let Some(ref item) = placeable_item.0 else {
         return;
     };
-
-    info!(
-        "zoop_start: {:?} -- cursor_pos: {:?}",
-        zoop_start, cursor_pos
-    );
 
     // check if the item is tileable
     let is_tileable = item.placeable.0.is_tileable();
@@ -152,29 +146,45 @@ pub fn place_item_at_location(
         )
     };
 
-    let spawned_locations = q_temp_placeable
-                .iter()
-                .map(|(_, t)| GridPos::from_world_pos_vec(t.translation().xy()))
-                .collect::<Vec<_>>();
-
-    let mut vectors_to_place = if is_tileable {
+    let vectors_to_place = if is_tileable {
         // get all the vectors between the start and end
-        let mut vectors_to_place = HashMap::new();
+        let mut vectors_to_place = HashSet::new();
 
         let mut current = start;
         while current != end {
-            vectors_to_place.insert(current, false);
+            vectors_to_place.insert(current);
             current += grid_direction;
+            if !locations_to_place.0.contains(&current) {
+                locations_to_place.0.insert(current);
+            }
         }
-        if GridPos::from_tile_pos_vec(cursor_pos) != end {
-            vectors_to_place.insert(end, false);
+        vectors_to_place.insert(end);
+        if !locations_to_place.0.contains(&end) {
+            locations_to_place.0.insert(end);
         }
         vectors_to_place
     } else {
-        let mut vectors_to_place = HashMap::new();
-        vectors_to_place.insert(end, false);
+        let mut vectors_to_place = HashSet::new();
+        vectors_to_place.insert(end);
+        if !locations_to_place.0.contains(&end) {
+            locations_to_place.0.insert(end);
+        }
         vectors_to_place
     };
+
+    let mut to_remove: HashSet<GridPos> = HashSet::new();
+
+    // loop through the locations_to_place before mutating it, adding items to the to_remove HashSet
+    for tile_pos in &locations_to_place.0 {
+        if !vectors_to_place.contains(tile_pos) {
+            to_remove.insert(*tile_pos);
+        }
+    }
+
+    // remove the items in the to_remove HashSet from the locations_to_place HashSet
+    for tile_pos in &to_remove {
+        locations_to_place.0.remove(tile_pos);
+    }
 
     // If we release the mouse button, we want to place the item(s) using the event, and discontinue all below logic
     if input.just_released(crate::Input::Select) {
@@ -182,7 +192,7 @@ pub fn place_item_at_location(
 
         // convert the hashmap above into a Vec of bundles, with the correct transforms applied to them
         let mut bundles = Vec::new();
-        for (tile_pos, _) in vectors_to_place {
+        for tile_pos in vectors_to_place {
             // first, ensure tile is walkable
             let nav_tile = &navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
             if !nav_tile.walkable {
@@ -213,86 +223,16 @@ pub fn place_item_at_location(
         return;
     }
 
-    // debug vectors_to_place
-    for (tile_pos, _) in &vectors_to_place {
+    // use gizmos to show the transforms to place
+    for tile_pos in &locations_to_place.0 {
         let tile_pos_vec = tile_pos.to_vec2();
         let tile_pos_world = tile_pos_vec.tile_pos_to_world();
 
-        gizmos.circle_2d(tile_pos_world, TILE_SIZE * 1.35, Color::GREEN);
-    }
-
-    // loop though q_temp_placeable and check if any of the entities are in the vectors_to_place
-    for (entity, transform) in &q_temp_placeable {
-        // if they are not, despawn
-        let tile_pos = transform.translation().xy();
-        if vectors_to_place.len() > 3 {
-            // info!("Start debugger!");
-        }
-
-        let grid_pos = GridPos::from_world_pos_vec(tile_pos);
-        if !vectors_to_place.contains_key(&grid_pos) {
-            let spawned_locations = q_temp_placeable
-                .iter()
-                .map(|(_, t)| GridPos::from_world_pos_vec(t.translation().xy()))
-                .collect::<Vec<_>>();
-
-            let all_to_place = vectors_to_place
-                .iter()
-                .map(|(grid_pos, _)| grid_pos)
-                .collect::<Vec<_>>();
-
-            commands.entity(entity).despawn_recursive();
-        } else {
-            // log length before setting
-            // if they are, set the value to true
-            info!("Setting {:?} to true", grid_pos);
-            vectors_to_place.insert(grid_pos, true);
-            // log it after setting
-        }
-    }
-
-    info!("vectors_to_place: {:?}", vectors_to_place);
-
-    let any_are_false = vectors_to_place.iter().any(|(_, is_placed)| !is_placed);
-
-    if any_are_false {
-        let all_translations = q_temp_placeable
-            .iter()
-            .map(|(_, transform)| GridPos::from_world_pos_vec(transform.translation().xy()))
-            .collect::<Vec<_>>();
-        let all_to_place = vectors_to_place
-            .iter()
-            .map(|(grid_pos, _)| grid_pos)
-            .collect::<Vec<_>>();
-        //     info!("all_translations: {:?}", all_translations);
-        //     info!("----------------------------------");
-        //     info!("all_to_place: {:?}", all_to_place);
-    }
-
-    let mut batch_to_spawn = Vec::new();
-
-    // loop through the vectors_to_place and spawn any that are not already spawned
-    for (tile_pos, is_spawned) in vectors_to_place {
-        if is_spawned {
-            continue;
-        }
-        let tile_pos_vec = tile_pos.to_vec2();
-        let tile_pos_world = tile_pos_vec.tile_pos_to_world();
-
-        let mut bundle = item.clone_bundle_dyn();
-        bundle.sprite_bundle.transform =
-            Transform::from_translation(tile_pos_world.extend(PLACING_Z_INDEX));
-
-        // Change the sprite color to be more transparent (to indicate that we are placing)
-        bundle.sprite_bundle.sprite.color = Color::rgba(1., 1., 1., 0.85);
-
-        // info!("spawning bundle at world pos: {:?}", bundle.sprite_bundle.transform.translation);
-
-        // TODO: Check if the tile is walkable
-
-        batch_to_spawn.push((bundle, NowPlacing, TempPlaceholder));
-    }
-    if batch_to_spawn.len() > 0 {
-        commands.spawn_batch(batch_to_spawn);
+        gizmos.rect_2d(
+            tile_pos_world + Vec2::new(TILE_SIZE / 2., TILE_SIZE / 2.),
+            0.,
+            Vec2::new(TILE_SIZE, TILE_SIZE),
+            Color::WHITE,
+        );
     }
 }

@@ -2,8 +2,8 @@ pub mod components;
 mod systems;
 
 use self::components::{PlaceableBundle, PlaceableItem};
-use crate::{CursorPosition, WorldInteraction};
-use bevy::prelude::*;
+use crate::{utils::GridPos, CursorPosition, WorldInteraction};
+use bevy::{prelude::*, utils::HashSet};
 
 pub mod prelude {
     pub use super::components::{
@@ -17,6 +17,7 @@ impl Plugin for PlaceablePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CurrentPlaceableItem>()
             .init_resource::<ZoopStartLocation>()
+            .init_resource::<ItemGridPlacement>()
             .add_event::<RequestPlacementEvent>()
             .add_systems(
                 Update,
@@ -35,7 +36,7 @@ impl Plugin for PlaceablePlugin {
                 Update,
                 (
                     systems::update_zoop_location,
-                    systems::place_item_at_location,
+                    systems::populate_item_grid_placement_res_and_send_spawn_event,
                 )
                     .chain()
                     .run_if(in_state(WorldInteraction::Placing)),
@@ -51,3 +52,6 @@ pub struct RequestPlacementEvent(pub Vec<PlaceableBundle<dyn PlaceableItem>>);
 
 #[derive(Resource, Default)]
 struct ZoopStartLocation(pub Option<Vec2>);
+
+#[derive(Resource, Default)]
+struct ItemGridPlacement(HashSet<GridPos>);

@@ -15,10 +15,7 @@ use assets::{DirtTile, GameAssets, GroundBase};
 use bevy::{asset::AssetMetaCheck, prelude::*, window::PrimaryWindow};
 use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
 use bevy_easings::*;
-use bevy_inspector_egui::{
-    bevy_egui::{EguiContext, EguiMousePosition},
-    quick::FilterQueryInspectorPlugin,
-};
+use bevy_inspector_egui::quick::FilterQueryInspectorPlugin;
 use leafwing_input_manager::{axislike::VirtualAxis, prelude::*};
 use noisy_bevy::simplex_noise_2d_seeded;
 use rand::prelude::*;
@@ -453,9 +450,10 @@ fn camera_interactions(
     camera_target.target += camera_movement.extend(0.) * delta * 1000. * projection.scale;
 
     // clamp camera to the extents of the map
-    camera_target.target = camera_target
-        .target
-        .clamp(Vec3::ZERO, Vec3::new(SIZE as f32 * TILE_SIZE, SIZE as f32 * TILE_SIZE, 0.));
+    camera_target.target = camera_target.target.clamp(
+        Vec3::ZERO,
+        Vec3::new(SIZE as f32 * TILE_SIZE, SIZE as f32 * TILE_SIZE, 0.),
+    );
 
     camera_target.zoom += camera_zoom * delta * 100.;
     camera_target.zoom = camera_target.zoom.clamp(0.1, 2.5);

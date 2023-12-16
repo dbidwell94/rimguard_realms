@@ -1,7 +1,6 @@
 pub mod components;
 mod systems;
 
-use self::components::work_order::{BuildItem, WorkOrder};
 use crate::GameState;
 use bevy::prelude::*;
 use std::collections::VecDeque;

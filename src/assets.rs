@@ -1,10 +1,10 @@
 use crate::GameState;
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::prelude::*;
 use bevy_asset_loader::prelude::*;
 use rand::prelude::*;
 
 pub mod rocks {
-    use bevy::{ecs::system::SystemParam, prelude::*};
+    use bevy::prelude::*;
     use bevy_asset_loader::prelude::*;
 
     use crate::GameState;
@@ -430,11 +430,4 @@ impl Plugin for GameAssets {
             .add_collection_to_loading_state::<_, GroundBase>(GameState::Loading)
             .add_collection_to_loading_state::<_, MalePawns>(GameState::Loading);
     }
-}
-
-#[derive(SystemParam)]
-struct Assets<'w> {
-    pub rock_collection: Res<'w, rocks::RockCollection>,
-    pub pawns: Res<'w, MalePawns>,
-    pub tree_collection: Res<'w, trees::TreeCollection>,
 }

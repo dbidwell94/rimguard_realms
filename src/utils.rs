@@ -71,10 +71,6 @@ pub struct GridPos {
 }
 
 impl GridPos {
-    pub fn new(x: usize, y: usize) -> Self {
-        Self { x, y }
-    }
-
     pub fn to_vec2(&self) -> Vec2 {
         Vec2::new(self.x as f32, self.y as f32)
     }

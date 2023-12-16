@@ -53,3 +53,6 @@ pub fn remove_placing_if_no_longer_placing(
         commands.entity(entity).despawn_recursive();
     }
 }
+
+// place item in a walkable location (walkable means the tile is empty and can be placed there)
+pub fn place_item_at_location() {}

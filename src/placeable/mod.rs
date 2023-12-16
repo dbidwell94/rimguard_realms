@@ -1,11 +1,13 @@
 pub mod components;
 mod systems;
 
+use self::components::{PlaceableBundle, PlaceableItem};
+use crate::{CursorPosition, WorldInteraction};
 use bevy::prelude::*;
 
-use crate::{CursorPosition, WorldInteraction};
-
-use self::components::{PlaceableBundle, PlaceableItem};
+pub mod prelude {
+    pub use super::components::{ClonePlaceableItem, PlaceableItem};
+}
 
 pub struct PlaceablePlugin;
 
@@ -24,6 +26,10 @@ impl Plugin for PlaceablePlugin {
             .add_systems(
                 OnExit(WorldInteraction::Placing),
                 systems::remove_placing_if_no_longer_placing,
+            )
+            .add_systems(
+                Update,
+                (systems::place_item_at_location).run_if(in_state(WorldInteraction::Placing)),
             );
     }
 }

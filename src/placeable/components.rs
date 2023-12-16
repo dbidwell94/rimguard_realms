@@ -7,6 +7,7 @@ pub trait PlaceableItem: Sync + Send + ClonePlaceableItem {
     fn max_resources(&self) -> usize;
     fn current_resources(&self) -> usize;
     fn set_current_resources(&mut self, resources: usize);
+    fn placeable_on_wall(&self) -> bool;
 }
 
 pub trait ClonePlaceableItem {
@@ -22,10 +23,25 @@ where
     }
 }
 
+/// auto create structs and impl PlaceableItem for them.
+/// within struct body, define `placeable_on_wall` and fields.
+/// # Example
+/// ```
+/// placeables!(
+///     struct TestPlaceable {
+///         placeable_on_wall: false,
+///     },
+///     struct TestPlaceable2 {
+///         placeable_on_wall: true,
+///         field1: usize,
+///     }
+/// );
+/// ```
 macro_rules! placeables {
     (
         $(
             struct $name: ident {
+                placeable_on_wall: $placeable: expr,
                 $(
                     $field: ident: $ty: ty
                 ),* $(,)?
@@ -33,7 +49,7 @@ macro_rules! placeables {
         ),*
     ) => {
         $(
-            #[derive(Component, Debug, Copy, Clone)]
+            #[derive(Debug, Copy, Clone)]
             pub struct $name {
                 $(
                     pub $field: $ty,
@@ -54,9 +70,11 @@ macro_rules! placeables {
                 fn set_current_resources(&mut self, resources: usize) {
                     self.current_resources = resources;
                 }
+
+                fn placeable_on_wall(&self) -> bool {
+                    $placeable
+                }
             }
-
-
         )*
     };
 }
@@ -67,9 +85,13 @@ pub struct Placeable<T: PlaceableItem + ?Sized>(pub Box<T>);
 #[derive(Component)]
 pub struct Tileable;
 
-placeables!(
-    struct Wall {},
-    struct Turret {}
+placeables! (
+    struct Wall {
+        placeable_on_wall: false,
+    },
+    struct Turret {
+        placeable_on_wall: true,
+    }
 );
 
 #[derive(Bundle, Clone)]

@@ -451,9 +451,12 @@ fn camera_interactions(
     let camera_zoom = -input.clamped_value(Input::Zoom) * 0.125;
 
     camera_target.target += camera_movement.extend(0.) * delta * 1000. * projection.scale;
-    camera_target
+
+    // clamp camera to the extents of the map
+    camera_target.target = camera_target
         .target
-        .clamp(Vec3::ZERO, Vec3::new(SIZE as f32, SIZE as f32, 0.));
+        .clamp(Vec3::ZERO, Vec3::new(SIZE as f32 * TILE_SIZE, SIZE as f32 * TILE_SIZE, 0.));
+
     camera_target.zoom += camera_zoom * delta * 100.;
     camera_target.zoom = camera_target.zoom.clamp(0.1, 2.5);
 
@@ -542,8 +545,8 @@ fn update_cursor_position(
 
     cursor_world_position.0 = world_pos.map(|v| {
         Vec2::new(
-            ((v.x - TILE_SIZE / 2.) as i32 / TILE_SIZE as i32) as f32,
-            ((v.y - TILE_SIZE / 2.) as i32 / TILE_SIZE as i32) as f32,
+            (((v.x - TILE_SIZE / 2.) as i32 / TILE_SIZE as i32) as f32).clamp(0., SIZE as f32),
+            (((v.y - TILE_SIZE / 2.) as i32 / TILE_SIZE as i32) as f32).clamp(0., SIZE as f32),
         )
     });
 }

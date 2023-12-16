@@ -295,6 +295,34 @@ pub mod trees {
         #[asset(path = "objects/trees/mossTree/small.png")]
         pub small: Handle<Image>,
     }
+
+    #[derive(Resource)]
+    pub struct TreeCollection {
+        pub fall_tree: FallTree,
+        pub fruit_tree: FruitTree,
+        pub moss_tree: MossTree,
+    }
+}
+
+pub mod walls {
+    use bevy::prelude::*;
+    use bevy_asset_loader::prelude::*;
+
+    use crate::GameState;
+
+    #[derive(Resource, AssetCollection)]
+    pub struct Wall {
+        #[asset(path = "objects/walls/wallStone.png")]
+        pub stone: Handle<Image>,
+    }
+
+    pub struct WallPlugin;
+
+    impl Plugin for WallPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_collection_to_loading_state::<_, Wall>(GameState::Loading);
+        }
+    }
 }
 
 #[derive(AssetCollection, Resource)]
@@ -398,7 +426,7 @@ pub struct GameAssets;
 
 impl Plugin for GameAssets {
     fn build(&self, app: &mut App) {
-        app.add_plugins((rocks::RockPlugin, trees::TreePlugin))
+        app.add_plugins((rocks::RockPlugin, trees::TreePlugin, walls::WallPlugin))
             .add_collection_to_loading_state::<_, GroundBase>(GameState::Loading)
             .add_collection_to_loading_state::<_, MalePawns>(GameState::Loading);
     }

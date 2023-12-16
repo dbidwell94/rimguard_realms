@@ -1,6 +1,9 @@
 use super::styles::*;
-use crate::{pawn::SpawnPawnRequestEvent, GameResources, GameState};
+use crate::placeable::components as placeable_components;
+use crate::TILE_SIZE;
+use crate::{pawn::SpawnPawnRequestEvent, GameResources, GameState, WorldInteraction};
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use bevy_ui_dsl::*;
 
 pub struct GameStateUIPlugin;
@@ -71,9 +74,11 @@ fn game_state_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 button(spawn_menu_button(Some("objects/pawns/pawn.png")), p, |_| {})
                     .set(&mut pawn_spawn_button);
                 // wall spawn button
-                button(spawn_menu_button(None), p, |p| {
-                    text("Wall", (), (), p);
-                })
+                button(
+                    spawn_menu_button(Some("objects/walls/wallStone.png")),
+                    p,
+                    |_| {},
+                )
                 .set(&mut wall_spawn_button);
                 // turret spawn button
                 button(
@@ -140,17 +145,43 @@ fn listen_for_spawn_pawn(
     }
 }
 
-fn listen_for_wall_spawn(wall_spawn_button: Query<&Interaction, With<WallSpawnButton>>) {
+fn listen_for_wall_spawn(
+    wall_spawn_button: Query<&Interaction, (With<WallSpawnButton>, Changed<Interaction>)>,
+    mut update_world_state: ResMut<NextState<WorldInteraction>>,
+    wall_resource: Res<crate::assets::walls::Wall>,
+    mut placeable_item: ResMut<crate::placeable::CurrentPlaceableItem>,
+) {
     for interaction in wall_spawn_button.iter() {
         if let Interaction::Pressed = interaction {
-            // TODO! Spawn a wall here
+            update_world_state.set(WorldInteraction::Placing);
+
+            placeable_item.0 = Some(placeable_components::PlaceableBundle {
+                sprite_bundle: SpriteBundle {
+                    texture: wall_resource.stone.clone(),
+                    sprite: Sprite {
+                        custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                        anchor: Anchor::BottomLeft,
+                        ..default()
+                    },
+                    ..default()
+                },
+                placeable: placeable_components::Placeable(Box::new(placeable_components::Wall {
+                    current_resources: 0,
+                    max_resources: 50,
+                })),
+            });
         }
     }
 }
 
-fn listen_for_turret_spawn(turret_spawn_button: Query<&Interaction, With<TurretSpawnButton>>) {
+fn listen_for_turret_spawn(
+    turret_spawn_button: Query<&Interaction, (With<TurretSpawnButton>, Changed<Interaction>)>,
+    mut update_world_state: ResMut<NextState<WorldInteraction>>,
+    mut placeable_item: ResMut<crate::placeable::CurrentPlaceableItem>,
+) {
     for interaction in turret_spawn_button.iter() {
         if let Interaction::Pressed = interaction {
+            update_world_state.set(WorldInteraction::Placing);
             // TODO! Spawn a turret here
         }
     }

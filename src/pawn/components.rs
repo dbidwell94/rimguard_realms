@@ -1,4 +1,4 @@
-use crate::assets::CharacterFacing;
+use crate::{assets::CharacterFacing, selectable::Selectable};
 use bevy::prelude::*;
 pub use pawn_status::ClearStatus;
 use std::collections::VecDeque;
@@ -37,6 +37,7 @@ pub struct PawnBundle<T: Component + pawn_status::Status> {
     pub pawn: Pawn,
     pub pawn_status: pawn_status::PawnStatus<T>,
     pub resources: CarriedResources,
+    pub selectable: Selectable,
 }
 
 #[derive(Component)]
@@ -89,7 +90,8 @@ pub mod pawn_status {
         PathfindingError,
         Moving,
         Mining,
-        Attacking
+        Attacking,
+        Building
     );
 }
 
@@ -113,10 +115,7 @@ pub mod work_order {
                 }
                 impl OrderItem for $name {
                     fn to_struct(&self) -> OrderType {
-                        let any_self = self as &dyn std::any::Any;
-                        let self_obj = any_self.downcast_ref::<$name>().unwrap();
-
-                        OrderType::$name(self_obj)
+                        OrderType::$name(self)
                     }
                 }
             )*
@@ -167,6 +166,9 @@ pub mod work_order {
             stone_entity: Entity,
         },
         struct ReturnToFactory {},
+        struct PickupStoneFromFactory {
+            for_entity: Entity,
+        },
         struct BuildItem {
             item_entity: Entity,
         },

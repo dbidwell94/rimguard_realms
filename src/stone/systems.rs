@@ -9,7 +9,7 @@ use noisy_bevy::simplex_noise_2d_seeded;
 
 const MAX_STONE_PER_TILE: usize = 1000;
 
-type StoneGrid = [[Option<StoneKind>; SIZE]; SIZE];
+type StoneGrid = Vec<Vec<Option<StoneKind>>>;
 
 fn get_neighbor_stone_kind(grid: &StoneGrid, x: usize, y: usize) -> Option<StoneKind> {
     // check top
@@ -74,7 +74,9 @@ pub fn spawn_stone_tiles(
 ) {
     let mut perlin_location = Vec2::new(0., 0.);
 
-    let mut stone_kinds: StoneGrid = [[Option::<StoneKind>::None; SIZE]; SIZE];
+    let mut stone_kinds: StoneGrid = (0..SIZE)
+        .map(|_| (0..SIZE).map(|_| None).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
 
     for x in 0..SIZE {
         for y in 0..SIZE {

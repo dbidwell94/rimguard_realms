@@ -3,8 +3,9 @@ use super::components::work_order::{AddWorkOrder, MineStone, WorkOrder};
 use super::{EnemyWave, SpawnPawnRequestEvent};
 use crate::factory::components::{Factory, Placed};
 use crate::navmesh::components::{NavTileOccupant, Navmesh, PathfindAnswer, PathfindRequest};
-use crate::navmesh::get_pathing;
+use crate::navmesh::prelude::*;
 use crate::pawn::components::pawn_status::AddStatus;
+use crate::selectable::Selectable;
 use crate::stone::{Stone, StoneKind};
 use crate::{
     assets::{CharacterFacing, MalePawns},
@@ -73,6 +74,7 @@ fn spawn_pawn_in_random_location(
             },
             pawn_status: PawnStatus(Box::new(pawn_status::Idle)),
             resources: CarriedResources(0),
+            selectable: Selectable,
         },))
         .id();
 
@@ -127,6 +129,8 @@ pub fn work_idle_pawns(
             With<Pawn>,
             Without<WorkOrder<work_order::ReturnToFactory>>,
             Without<WorkOrder<work_order::MineStone>>,
+            Without<WorkOrder<work_order::BuildItem>>,
+            Without<WorkOrder<work_order::PickupStoneFromFactory>>,
             Without<PawnStatus<pawn_status::Moving>>,
             Without<WorkOrder<work_order::AttackPawn>>,
             With<PawnStatus<pawn_status::Idle>>,
@@ -135,7 +139,15 @@ pub fn work_idle_pawns(
     >,
     q_stones: Query<Entity, With<StoneKind>>,
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
-    navmesh: Res<Navmesh>,
+    q_placeable: Query<
+        (Entity, &Transform),
+        With<
+            crate::placeable::components::Placeable<
+                dyn crate::placeable::components::PlaceableItem,
+            >,
+        >,
+    >,
+    (navmesh, mut work_queue): (Res<Navmesh>, ResMut<super::WorkQueue>),
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
 ) {
     let navmesh_tiles = &navmesh.0;
@@ -156,6 +168,32 @@ pub fn work_idle_pawns(
     }
 
     for (entity, transform, resources) in &mut q_pawns {
+        let pawn_grid_location = transform.translation.world_pos_to_tile();
+        // check build queue first
+
+        if let Some(placeable_entity) = work_queue.build_queue.pop_front() {
+            let Ok((_, placeable_transform)) = q_placeable.get(placeable_entity) else {
+                continue;
+            };
+
+            commands
+                .entity(entity)
+                .add_status(pawn_status::Pathfinding)
+                .add_work_order(work_order::BuildItem {
+                    item_entity: placeable_entity,
+                });
+
+            let placeable_grid = placeable_transform.translation.world_pos_to_tile();
+
+            pathfinding_event_writer.send(PathfindRequest {
+                start: pawn_grid_location,
+                end: placeable_grid,
+                entity,
+            });
+
+            continue;
+        }
+
         // check if the pawn is full on resources
         if resources.0 >= MAX_RESOURCES {
             commands
@@ -175,10 +213,8 @@ pub fn work_idle_pawns(
             continue;
         }
 
-        let grid_location = transform.translation.world_pos_to_tile();
-
-        let grid_x = grid_location.x as usize;
-        let grid_y = grid_location.y as usize;
+        let grid_x = pawn_grid_location.x as usize;
+        let grid_y = pawn_grid_location.y as usize;
 
         // search the navmesh for non-walkable tiles, and see if the entities within are in q_stones
         let stone_location;
@@ -221,7 +257,7 @@ pub fn work_idle_pawns(
                     stone_entity: stone_entity.unwrap(),
                 });
             pathfinding_event_writer.send(PathfindRequest {
-                start: grid_location,
+                start: pawn_grid_location,
                 end: stone_location,
                 entity,
             });
@@ -745,6 +781,7 @@ pub fn spawn_enemy_pawns(
                 },
                 pawn_status: PawnStatus(Box::new(pawn_status::Idle)),
                 resources: CarriedResources(0),
+                selectable: Selectable,
             })
             .insert(Enemy)
             .id();

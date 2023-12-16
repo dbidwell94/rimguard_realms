@@ -72,10 +72,10 @@ pub fn spawn_menu_button(
     image_location: Option<&'static str>,
 ) -> impl Fn(&AssetServer, &mut ButtonBundle) {
     move |assets: &AssetServer, b: &mut ButtonBundle| {
-        b.image = UiImage {
-            texture: assets.load(image_location.unwrap_or_default()),
-            ..default()
-        };
+        if let Some(location) = image_location {
+            b.image.texture = assets.load(location);
+        }
+
         b.style = Style {
             width: Val::Px(50.0),
             height: Val::Px(50.0),

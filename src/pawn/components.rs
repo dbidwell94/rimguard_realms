@@ -114,10 +114,7 @@ pub mod work_order {
                 }
                 impl OrderItem for $name {
                     fn to_struct(&self) -> OrderType {
-                        let any_self = self as &dyn std::any::Any;
-                        let self_obj = any_self.downcast_ref::<$name>().unwrap();
-
-                        OrderType::$name(self_obj)
+                        OrderType::$name(self)
                     }
                 }
             )*

@@ -64,6 +64,22 @@ impl TranslationHelper for Vec2 {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct GridPos {
+    pub x: usize,
+    pub y: usize,
+}
+
+impl GridPos {
+    pub fn new(x: usize, y: usize) -> Self {
+        Self { x, y }
+    }
+
+    pub fn to_vec2(&self) -> Vec2 {
+        Vec2::new(self.x as f32, self.y as f32)
+    }
+}
+
 #[macro_export]
 macro_rules! boxed {
     ($expr: expr) => {

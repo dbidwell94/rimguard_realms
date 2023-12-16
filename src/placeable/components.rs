@@ -3,11 +3,15 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct NowPlacing;
 
+#[derive(Component)]
+pub struct TempPlaceholder;
+
 pub trait PlaceableItem: Sync + Send + ClonePlaceableItem {
     fn max_resources(&self) -> usize;
     fn current_resources(&self) -> usize;
     fn set_current_resources(&mut self, resources: usize);
     fn placeable_on_wall(&self) -> bool;
+    fn is_tileable(&self) -> bool;
 }
 
 pub trait ClonePlaceableItem {
@@ -24,15 +28,17 @@ where
 }
 
 /// auto create structs and impl PlaceableItem for them.
-/// within struct body, define `placeable_on_wall` and fields.
+/// within struct body, define `placeable_on_wall`, `tileable` and fields.
 /// # Example
 /// ```
 /// placeables!(
 ///     struct TestPlaceable {
 ///         placeable_on_wall: false,
+///         tileable: true,
 ///     },
 ///     struct TestPlaceable2 {
 ///         placeable_on_wall: true,
+///         tileable: false,
 ///         field1: usize,
 ///     }
 /// );
@@ -42,6 +48,7 @@ macro_rules! placeables {
         $(
             struct $name: ident {
                 placeable_on_wall: $placeable: expr,
+                tileable: $tileable: expr,
                 $(
                     $field: ident: $ty: ty
                 ),* $(,)?
@@ -56,6 +63,12 @@ macro_rules! placeables {
                 )*
                 pub max_resources: usize,
                 pub current_resources: usize,
+            }
+
+            impl PlaceableItemExt for $name {
+                fn to_struct(&self) -> PlaceableType {
+                    PlaceableType::$name(self)
+                }
             }
 
             impl PlaceableItem for $name {
@@ -74,8 +87,22 @@ macro_rules! placeables {
                 fn placeable_on_wall(&self) -> bool {
                     $placeable
                 }
+
+                fn is_tileable(&self) -> bool {
+                    $tileable
+                }
             }
         )*
+
+        pub trait PlaceableItemExt {
+            fn to_struct(&self) -> PlaceableType;
+        }
+
+        pub enum PlaceableType<'a> {
+            $(
+                $name(&'a $name),
+            )*
+        }
     };
 }
 
@@ -88,9 +115,11 @@ pub struct Tileable;
 placeables! (
     struct Wall {
         placeable_on_wall: false,
+        tileable: true,
     },
     struct Turret {
         placeable_on_wall: true,
+        tileable: false,
     }
 );
 

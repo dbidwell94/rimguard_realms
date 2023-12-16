@@ -6,7 +6,9 @@ use crate::{CursorPosition, WorldInteraction};
 use bevy::prelude::*;
 
 pub mod prelude {
-    pub use super::components::{ClonePlaceableItem, PlaceableItem};
+    pub use super::components::{
+        ClonePlaceableItem, PlaceableItem, PlaceableItemExt, PlaceableType,
+    };
 }
 
 pub struct PlaceablePlugin;
@@ -14,6 +16,8 @@ pub struct PlaceablePlugin;
 impl Plugin for PlaceablePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CurrentPlaceableItem>()
+            .init_resource::<ZoopStartLocation>()
+            .add_event::<RequestPlacementEvent>()
             .add_systems(
                 Update,
                 systems::show_placeable_item.run_if(resource_changed::<CurrentPlaceableItem>()),
@@ -29,10 +33,21 @@ impl Plugin for PlaceablePlugin {
             )
             .add_systems(
                 Update,
-                (systems::place_item_at_location).run_if(in_state(WorldInteraction::Placing)),
+                (
+                    systems::place_item_at_location,
+                    systems::update_zoop_location,
+                )
+                    .chain()
+                    .run_if(in_state(WorldInteraction::Placing)),
             );
     }
 }
 
 #[derive(Resource, Default)]
 pub struct CurrentPlaceableItem(pub Option<PlaceableBundle<dyn PlaceableItem>>);
+
+#[derive(Event)]
+pub struct RequestPlacementEvent(pub Vec<PlaceableBundle<dyn PlaceableItem>>);
+
+#[derive(Resource, Default)]
+struct ZoopStartLocation(pub Option<Vec2>);

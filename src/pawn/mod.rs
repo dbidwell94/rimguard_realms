@@ -90,16 +90,16 @@ impl Plugin for PawnPlugin {
 
 #[derive(Resource, Default)]
 pub struct WorkQueue {
-    pub build_queue: VecDeque<WorkOrder<dyn components::work_order::OrderItem>>,
+    pub build_queue: VecDeque<
+        crate::placeable::components::Placeable<dyn crate::placeable::components::PlaceableItem>,
+    >,
 }
 
 #[derive(Event, Debug)]
 pub struct SpawnPawnRequestEvent;
 
 #[derive(Event, Debug)]
-pub struct RequestWorkOrder {
-
-}
+pub struct RequestWorkOrder {}
 
 #[derive(Resource)]
 pub struct EnemyWave {

@@ -110,6 +110,11 @@ pub fn place_item_at_location(
         return;
     };
 
+    info!(
+        "zoop_start: {:?} -- cursor_pos: {:?}",
+        zoop_start, cursor_pos
+    );
+
     // check if the item is tileable
     let is_tileable = item.placeable.0.is_tileable();
 
@@ -146,6 +151,11 @@ pub fn place_item_at_location(
             GridPos::from_tile_pos_vec(Vec2::new(zoop_start.x, cursor_pos.y)),
         )
     };
+
+    let spawned_locations = q_temp_placeable
+                .iter()
+                .map(|(_, t)| GridPos::from_world_pos_vec(t.translation().xy()))
+                .collect::<Vec<_>>();
 
     let mut vectors_to_place = if is_tileable {
         // get all the vectors between the start and end
@@ -203,36 +213,45 @@ pub fn place_item_at_location(
         return;
     }
 
+    // debug vectors_to_place
+    for (tile_pos, _) in &vectors_to_place {
+        let tile_pos_vec = tile_pos.to_vec2();
+        let tile_pos_world = tile_pos_vec.tile_pos_to_world();
+
+        gizmos.circle_2d(tile_pos_world, TILE_SIZE * 1.35, Color::GREEN);
+    }
+
     // loop though q_temp_placeable and check if any of the entities are in the vectors_to_place
     for (entity, transform) in &q_temp_placeable {
         // if they are not, despawn
         let tile_pos = transform.translation().xy();
-        let grid_pos = GridPos::from_tile_pos_vec(tile_pos.world_pos_to_tile());
-        if !vectors_to_place.contains_key(&grid_pos) {
-            gizmos.circle_2d(tile_pos, TILE_SIZE * 2., Color::RED);
+        if vectors_to_place.len() > 3 {
+            // info!("Start debugger!");
+        }
 
-            let entity_transform = q_temp_placeable
-                .get_component::<GlobalTransform>(entity)
-                .unwrap();
-            let translation = entity_transform.translation();
-            info!(
-                "Despawning entity: {:?} at {:?} -- grid: {:?} -- cursor at: {:?}",
-                entity, translation, grid_pos, cursor_pos
-            );
+        let grid_pos = GridPos::from_world_pos_vec(tile_pos);
+        if !vectors_to_place.contains_key(&grid_pos) {
+            let spawned_locations = q_temp_placeable
+                .iter()
+                .map(|(_, t)| GridPos::from_world_pos_vec(t.translation().xy()))
+                .collect::<Vec<_>>();
+
+            let all_to_place = vectors_to_place
+                .iter()
+                .map(|(grid_pos, _)| grid_pos)
+                .collect::<Vec<_>>();
 
             commands.entity(entity).despawn_recursive();
         } else {
-            // Not worried about `unwrap()` here because we already checked to see if it exists above
-            if let Some(is_placed) = vectors_to_place.get_mut(&grid_pos) {
-                *is_placed = true;
-            } else {
-                panic!(
-                    "Somehow the tile_pos {:?} was not in the vectors_to_place",
-                    tile_pos
-                );
-            }
+            // log length before setting
+            // if they are, set the value to true
+            info!("Setting {:?} to true", grid_pos);
+            vectors_to_place.insert(grid_pos, true);
+            // log it after setting
         }
     }
+
+    info!("vectors_to_place: {:?}", vectors_to_place);
 
     let any_are_false = vectors_to_place.iter().any(|(_, is_placed)| !is_placed);
 
@@ -267,7 +286,7 @@ pub fn place_item_at_location(
         // Change the sprite color to be more transparent (to indicate that we are placing)
         bundle.sprite_bundle.sprite.color = Color::rgba(1., 1., 1., 0.85);
 
-        info!("spawning bundle at world pos: {:?}", bundle.sprite_bundle.transform.translation);
+        // info!("spawning bundle at world pos: {:?}", bundle.sprite_bundle.transform.translation);
 
         // TODO: Check if the tile is walkable
 

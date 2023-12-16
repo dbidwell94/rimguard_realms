@@ -121,6 +121,13 @@ impl std::ops::AddAssign for GridPos {
     }
 }
 
+impl std::ops::SubAssign for GridPos {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.x -= rhs.x as i32;
+        self.y -= rhs.y as i32;
+    }
+}
+
 #[macro_export]
 macro_rules! boxed {
     ($expr: expr) => {

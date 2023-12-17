@@ -115,6 +115,7 @@ pub struct EnemyWave {
     pub wave: usize,
     pub enemy_count_multiplier: usize,
     pub enemy_spawn_timer: Timer,
+    pub enemies: usize,
 }
 
 impl Default for EnemyWave {
@@ -123,6 +124,7 @@ impl Default for EnemyWave {
             wave: 0,
             enemy_count_multiplier: 1,
             enemy_spawn_timer: Timer::from_seconds(30.0, TimerMode::Repeating),
+            enemies: 0,
         }
     }
 }

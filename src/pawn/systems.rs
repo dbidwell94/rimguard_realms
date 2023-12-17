@@ -22,7 +22,7 @@ use leafwing_input_manager::prelude::*;
 use rand::prelude::*;
 use std::collections::VecDeque;
 
-const INITIAL_PAWN_COUNT: usize = 25;
+const INITIAL_PAWN_COUNT: usize = 10;
 const MOVE_SPEED: f32 = 60.;
 const MAX_RESOURCES: usize = 15;
 const RESOURCE_GAIN_RATE: usize = 1;
@@ -565,6 +565,7 @@ pub fn pickup_stone_from_factory(
     q_factory: Query<&Transform, (With<Factory>, With<Placed>)>,
     mut nav_request: EventWriter<PathfindRequest>,
     mut game_resources: ResMut<GameResources>,
+    mut work_queue: ResMut<WorkQueue>,
 ) {
     for (pawn_entity, mut carried_resources, order, mut status, pawn_transform) in &mut q_pawns {
         // if we aren't picking up stone, we don't need to do anything. Continue to the next entity.
@@ -622,6 +623,13 @@ pub fn pickup_stone_from_factory(
 
         game_resources.stone -= to_add_to_pawn;
         carried_resources.0 += to_add_to_pawn;
+
+        // edge case. If carried resources is 0, clear work order, set idle, add to work queue, and continue to next entity
+        if carried_resources.0 == 0 {
+            work_queue.build_queue.push_back(*for_entity);
+            commands.entity(pawn_entity).clear_work_order();
+            *status = PawnStatus::Idle(pawn_status::Idle);
+        }
     }
 }
 
@@ -931,6 +939,7 @@ pub fn search_for_attack_target_pawn(
     q_enemies: Query<(Entity, &Pawn, &Transform, Option<&WorkOrder>), With<Enemy>>,
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     mut work_queue: ResMut<WorkQueue>,
+    navmesh: Res<Navmesh>,
 ) {
     #[derive(Debug)]
     struct PawnAttacking {
@@ -949,6 +958,7 @@ pub fn search_for_attack_target_pawn(
             impl ReadOnlyWorldQuery,
         >,
         attack_map: &mut HashMap<Entity, Vec<PawnAttacking>>,
+        navmesh: &Res<Navmesh>,
     ) {
         for (pawn_entity, pawn, transform, work_order) in search_query {
             // we already have an attack work order, skip this pawn
@@ -966,7 +976,17 @@ pub fn search_for_attack_target_pawn(
                 .iter()
                 .filter(|&(_, _, enemy_pos, _)| {
                     let enemy_position = enemy_pos.world_pos_to_tile();
-                    (enemy_position - pawn_position).length() <= ENEMY_TILE_RANGE as f32
+                    (enemy_position - pawn_position).length() <= ENEMY_TILE_RANGE as f32 && {
+                        let path = get_pathing(
+                            PathfindRequest {
+                                start: pawn_position,
+                                end: enemy_position,
+                                entity: pawn_entity,
+                            },
+                            &navmesh,
+                        );
+                        path.is_some() && path.unwrap().len() <= ENEMY_TILE_RANGE
+                    }
                 })
                 .collect::<Vec<_>>();
             results.sort_by(|&(_, _, a, _), &(_, _, b, _)| {
@@ -999,8 +1019,8 @@ pub fn search_for_attack_target_pawn(
     // A map which contains the target of the attack, and the details about the attack
     let mut attack_map = HashMap::<Entity, Vec<PawnAttacking>>::new();
 
-    find_pawns_to_attack(&q_pawns, &q_enemies, &mut attack_map);
-    find_pawns_to_attack(&q_enemies, &q_pawns, &mut attack_map);
+    find_pawns_to_attack(&q_pawns, &q_enemies, &mut attack_map, &navmesh);
+    find_pawns_to_attack(&q_enemies, &q_pawns, &mut attack_map, &navmesh);
 
     let nav_requests = attack_map
         .values()
@@ -1169,6 +1189,7 @@ pub fn spawn_enemy_pawns(
         // convert spawn_location to world coordinates
         let spawn_location = spawn_location.tile_pos_to_world();
         spawn_enemy(spawn_location);
+        enemy_wave.enemies += 1;
         // spawn enemy pawn
     }
 }
@@ -1217,6 +1238,7 @@ pub fn attack_pawn(
     )>,
     q_all_pawns: Query<(Entity, &Transform, Option<&Enemy>), With<Pawn>>,
     mut game_resources: ResMut<GameResources>,
+    mut enemy_wave: ResMut<EnemyWave>,
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     mut attack_event_writer: EventWriter<AttackEvent>,
 ) {
@@ -1334,6 +1356,8 @@ pub fn attack_pawn(
             destroyed_pawns.insert(attacking_entity);
             if entity_is_enemy {
                 game_resources.pawns = game_resources.pawns.saturating_sub(1);
+            } else {
+                enemy_wave.enemies = enemy_wave.enemies.saturating_sub(1);
             }
         }
 

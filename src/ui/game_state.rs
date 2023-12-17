@@ -20,6 +20,13 @@ impl Plugin for GameStateUIPlugin {
             )
             .add_systems(
                 Update,
+                update_enemy_counter.run_if(
+                    in_state(GameState::Main)
+                        .and_then(resource_changed::<crate::pawn::EnemyWave>()),
+                ),
+            )
+            .add_systems(
+                Update,
                 (
                     listen_for_spawn_pawn,
                     listen_for_wall_spawn,
@@ -34,6 +41,8 @@ impl Plugin for GameStateUIPlugin {
 struct GameResourceCounter;
 #[derive(Component)]
 struct PawnResourceCounter;
+#[derive(Component)]
+struct EnemyResourceCounter;
 
 #[derive(Component)]
 struct GameStateUI;
@@ -49,6 +58,7 @@ struct TurretSpawnButton;
 fn game_state_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut resource_entity = None;
     let mut pawn_entity = None;
+    let mut enemy_entity = None;
 
     let mut pawn_spawn_button = None;
     let mut wall_spawn_button = None;
@@ -67,6 +77,10 @@ fn game_state_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 node((), p, |p| {
                     text("Pawns: ", c_pixel_text, text_style(Some(28.)), p);
                     text("0", c_pixel_text, text_style(Some(28.)), p).set(&mut pawn_entity);
+                });
+                node((), p, |p| {
+                    text("Enemies: ", c_pixel_text, text_style(Some(28.)), p);
+                    text("0", c_pixel_text, text_style(Some(28.)), p).set(&mut enemy_entity);
                 });
             });
             node(bottom_center_anchor, p, |p| {
@@ -97,6 +111,9 @@ fn game_state_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .entity(pawn_entity.unwrap())
         .insert(PawnResourceCounter);
+    commands
+        .entity(enemy_entity.unwrap())
+        .insert(EnemyResourceCounter);
     commands
         .entity(pawn_spawn_button.unwrap())
         .insert(PawnSpawnButton);
@@ -131,6 +148,15 @@ fn update_pawn_counter(
 ) {
     for mut text in &mut query {
         text.sections[0].value = game_resources.pawns.to_string();
+    }
+}
+
+fn update_enemy_counter(
+    enemy_wave: Res<crate::pawn::EnemyWave>,
+    mut query: Query<&mut Text, With<EnemyResourceCounter>>,
+) {
+    for mut text in &mut query {
+        text.sections[0].value = enemy_wave.enemies.to_string();
     }
 }
 

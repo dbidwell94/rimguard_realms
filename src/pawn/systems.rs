@@ -1,10 +1,11 @@
 use super::components::pawn_status::{Idle, PawnStatus};
 use super::components::work_order::{AddWorkOrder, WorkOrder};
-use super::{AttackEvent, EnemyWave, SpawnPawnRequestEvent};
+use super::{AttackEvent, EnemyWave, SpawnPawnRequestEvent, WorkQueue};
 use crate::factory::components::{Factory, Placed};
 use crate::navmesh::components::{NavTileOccupant, Navmesh, PathfindAnswer, PathfindRequest};
 use crate::navmesh::prelude::*;
 use crate::pawn::components::pawn_status::AddStatus;
+use crate::pawn::components::work_order::PickupStoneFromFactory;
 use crate::placeable::prelude::PlaceableType;
 use crate::selectable::Selectable;
 use crate::stone::{Stone, StoneKind};
@@ -26,7 +27,7 @@ const MOVE_SPEED: f32 = 60.;
 const MAX_RESOURCES: usize = 15;
 const RESOURCE_GAIN_RATE: usize = 1;
 const PAWN_COST: usize = 100;
-const PAWN_ATTACK_STRENGTH: usize = 5;
+const PAWN_ATTACK_STRENGTH: usize = 7;
 const ENEMY_TILE_RANGE: usize = 10;
 const ENEMY_ATTACK_STRENGTH: usize = 10;
 const PAWN_SEARCH_TIMER: f32 = 0.25;
@@ -132,7 +133,7 @@ pub fn work_idle_pawns(
     >,
     q_stones: Query<Entity, With<StoneKind>>,
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
-    q_placeable: Query<(Entity, &Transform), With<PlaceableType>>,
+    q_placeable: Query<Entity, With<PlaceableType>>,
     (navmesh, mut work_queue): (Res<Navmesh>, ResMut<super::WorkQueue>),
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
 ) {
@@ -162,29 +163,17 @@ pub fn work_idle_pawns(
         // check build queue first
 
         if let Some(placeable_entity) = work_queue.build_queue.pop_front() {
-            let Ok((_, placeable_transform)) = q_placeable.get(placeable_entity) else {
+            // If this if statement fails, then the placeable doesn't exist.
+            // Odd, but move on and continue issuing commands
+            if let Ok(_) = q_placeable.get(placeable_entity) {
+                commands.entity(entity).add_work_order(WorkOrder::BuildItem(
+                    work_order::BuildItem {
+                        item_entity: placeable_entity,
+                    },
+                ));
+
                 continue;
             };
-
-            commands
-                .entity(entity)
-                .add_status(PawnStatus::Pathfinding(pawn_status::Pathfinding))
-                .add_work_order(WorkOrder::BuildItem(work_order::BuildItem {
-                    item_entity: placeable_entity,
-                }));
-            // .add_work_order(work_order::BuildItem {
-            //     item_entity: placeable_entity,
-            // });
-
-            let placeable_grid = placeable_transform.translation.world_pos_to_tile();
-
-            pathfinding_event_writer.send(PathfindRequest {
-                start: pawn_grid_location,
-                end: placeable_grid,
-                entity,
-            });
-
-            continue;
         }
 
         // check if the pawn is full on resources
@@ -318,7 +307,6 @@ pub fn move_pawn(
             pawn.move_to = pawn.move_path.pop_front();
         }
         let Some(path) = pawn.move_to else {
-            // info!("Pawn {:?} is not moving. Path was: {:?}", entity, pawn.move_path);
             pawn.moving = false;
             continue;
         };
@@ -528,6 +516,63 @@ pub fn mine_stone(
     }
 }
 
+pub fn pickup_stone_from_factory() {
+    todo!()
+}
+
+pub fn build_placeable(
+    mut commands: Commands,
+    mut q_pawns: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Pawn,
+            &mut CarriedResources,
+            &mut PawnStatus,
+            &WorkOrder,
+        ),
+        Without<Enemy>,
+    >,
+    mut q_placeable: Query<
+        (Entity, &mut PlaceableType),
+        Without<crate::placeable::components::Built>,
+    >,
+) {
+    for (entity, transform, mut pawn, mut carried_resources, mut status, order) in &mut q_pawns {
+        // If we don't have a build work order, skip this entity
+        let WorkOrder::BuildItem(work_order::BuildItem { item_entity }) = order else {
+            continue;
+        };
+
+        let Ok((_, mut placeable_type)) = q_placeable.get_mut(*item_entity) else {
+            // Not sure what happened here, but clear the status and work order and keep working.
+            // The placeable does not exist in the query so it's not workable
+            *status = PawnStatus::Idle(pawn_status::Idle);
+            commands.entity(entity).clear_work_order();
+            continue;
+        };
+
+        // we are idle, we need to either get resources OR pathfind to the placeable
+        if variant_eq(&PawnStatus::Idle(pawn_status::Idle), &status) {
+            // we do not have enough resources OR we are not full on resources. We need to get more resources
+            // from the factory
+            if carried_resources.0 < placeable_type.get_missing_resource_count()
+                && carried_resources.0 < MAX_RESOURCES
+            {
+                *status = PawnStatus::Idle(pawn_status::Idle);
+                commands
+                    .entity(entity)
+                    .add_work_order(WorkOrder::PickupStoneFromFactory(
+                        work_order::PickupStoneFromFactory {
+                            for_entity: *item_entity,
+                        },
+                    ));
+                continue;
+            }
+        }
+    }
+}
+
 pub fn return_to_factory(
     mut commands: Commands,
     mut q_pawns: Query<
@@ -622,50 +667,75 @@ pub fn tick_timers(mut q_pawns: Query<&mut Pawn>, time: Res<Time>) {
     }
 }
 
-// pub fn retry_pathfinding(
-//     mut commands: Commands,
-//     mut q_pawns: Query<
-//         (Entity, &mut Pawn, &Transform),
-//         With<PawnStatus<pawn_status::PathfindingError>>,
-//     >,
-//     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
-//     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
-// ) {
-//     let mut pathfinding_requests = Vec::new();
-//     let Ok(factory_transform) = q_factory.get_single() else {
-//         return;
-//     };
-//     for (entity, mut pawn, pawn_transform) in &mut q_pawns {
-//         if !pawn.retry_pathfinding_timer.finished() {
-//             continue;
-//         }
+pub fn retry_pathfinding(
+    mut commands: Commands,
+    mut q_pawns: Query<(
+        Entity,
+        &mut Pawn,
+        &Transform,
+        &mut PawnStatus,
+        Option<&WorkOrder>,
+    )>,
+    q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
+    mut pathfinding_event_writer: EventWriter<PathfindRequest>,
+    mut work_queue: ResMut<WorkQueue>,
+) {
+    let mut pathfinding_requests = Vec::new();
+    let Ok(factory_transform) = q_factory.get_single() else {
+        return;
+    };
+    for (entity, mut pawn, pawn_transform, mut pawn_status, order) in &mut q_pawns {
+        // The pawn is not in a pathfinding error state, skip this entity
+        if !variant_eq(
+            &PawnStatus::PathfindingError(pawn_status::PathfindingError),
+            &pawn_status,
+        ) {
+            continue;
+        }
 
-//         commands
-//             .entity(entity)
-//             .clear_work_order()
-//             .add_status(pawn_status::Idle);
+        // Buffer the pathfinding requests so we don't overload the CPU with pathfinding requests if we cannot find a path
+        if !pawn.retry_pathfinding_timer.finished() {
+            continue;
+        }
+        pawn.retry_pathfinding_timer.reset();
 
-//         pawn.retry_pathfinding_timer.reset();
+        *pawn_status = PawnStatus::Idle(pawn_status::Idle);
 
-//         let pawn_pos = pawn_transform.translation.world_pos_to_tile();
-//         let factory_pos = factory_transform.translation().world_pos_to_tile();
-//         pathfinding_requests.push(PathfindRequest {
-//             start: pawn_pos,
-//             end: factory_pos,
-//             entity,
-//         });
+        if let Some(order) = order {
+            match order {
+                WorkOrder::BuildItem(work_order::BuildItem { item_entity })
+                | WorkOrder::PickupStoneFromFactory(PickupStoneFromFactory {
+                    for_entity: item_entity,
+                }) => {
+                    // requeue the work order so it can be picked up by another pawn.
+                    work_queue.build_queue.push_back(*item_entity);
+                }
+                _ => {}
+            }
+        }
 
-//         info!("Pawn {:?} is retrying pathfinding", entity);
-//     }
+        commands.entity(entity).clear_work_order();
 
-//     pathfinding_event_writer.send_batch(pathfinding_requests);
-// }
+        let pawn_pos = pawn_transform.translation.world_pos_to_tile();
+        let factory_pos = factory_transform.translation().world_pos_to_tile();
+        pathfinding_requests.push(PathfindRequest {
+            start: pawn_pos,
+            end: factory_pos,
+            entity,
+        });
+
+        info!("Pawn {:?} is retrying pathfinding", entity);
+    }
+
+    pathfinding_event_writer.send_batch(pathfinding_requests);
+}
 
 pub fn search_for_attack_target_pawn(
     mut commands: Commands,
-    q_pawns: Query<(Entity, &Pawn, &Transform, Option<&WorkOrder>), (With<Pawn>, Without<Enemy>)>,
-    q_enemies: Query<(Entity, &Pawn, &Transform, Option<&WorkOrder>), (With<Pawn>, With<Enemy>)>,
+    q_pawns: Query<(Entity, &Pawn, &Transform, Option<&WorkOrder>), Without<Enemy>>,
+    q_enemies: Query<(Entity, &Pawn, &Transform, Option<&WorkOrder>), With<Enemy>>,
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
+    mut work_queue: ResMut<WorkQueue>,
 ) {
     #[derive(Debug)]
     struct PawnAttacking {
@@ -762,6 +832,23 @@ pub fn search_for_attack_target_pawn(
         .collect::<Vec<_>>();
 
     for &(PathfindRequest { entity, .. }, target_entity) in &nav_requests {
+        if let Ok((_, _, _, work_order)) = q_pawns.get(entity) {
+            // handle other work orders here
+            if let Some(order) = work_order {
+                match order {
+                    WorkOrder::BuildItem(work_order::BuildItem { item_entity })
+                    | WorkOrder::PickupStoneFromFactory(PickupStoneFromFactory {
+                        for_entity: item_entity,
+                    }) => {
+                        // requeue the work order so it can be picked up by another pawn.
+                        work_queue.build_queue.push_back(*item_entity);
+                        commands.entity(entity).clear_work_order();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         commands
             .entity(entity)
             .add_status(PawnStatus::Pathfinding(pawn_status::Pathfinding))
@@ -933,19 +1020,21 @@ pub fn attack_pawn(
         &Transform,
         Option<&Enemy>,
     )>,
-    q_all_pawns: Query<(Entity, &Transform), With<Pawn>>,
+    q_all_pawns: Query<(Entity, &Transform, Option<&Enemy>), With<Pawn>>,
     mut game_resources: ResMut<GameResources>,
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     mut attack_event_writer: EventWriter<AttackEvent>,
 ) {
+    #[derive(Debug)]
     struct AttackMetadata {
         entity: Entity,
         attacking_entity: Entity,
         attack_for: usize,
         entity_is_enemy: bool,
+        target_is_enemy: bool,
     }
 
-    let mut queued_attacks: HashMap<Entity, AttackMetadata> = HashMap::new();
+    let mut queued_attacks: Vec<AttackMetadata> = Vec::new();
     let mut destroyed_pawns = HashSet::<Entity>::default();
 
     for (entity, order, mut pawn, mut status, transform, enemy) in &mut q_pawns {
@@ -956,7 +1045,8 @@ pub fn attack_pawn(
         else {
             continue;
         };
-        let Ok((_, attacking_transform)) = q_all_pawns.get(*attacking_entity) else {
+        let Ok((_, attacking_transform, attacking_is_enemy)) = q_all_pawns.get(*attacking_entity)
+        else {
             // oh no, the pawn is missing. Set status to idle and clear work order
             *status = PawnStatus::Idle(pawn_status::Idle);
             commands.entity(entity).clear_work_order();
@@ -994,19 +1084,17 @@ pub fn attack_pawn(
         pawn.work_timer.reset();
 
         // queue an attack
-        queued_attacks.insert(
+        queued_attacks.push(AttackMetadata {
             entity,
-            AttackMetadata {
-                entity,
-                attacking_entity: *attacking_entity,
-                attack_for: if enemy.is_some() {
-                    ENEMY_ATTACK_STRENGTH
-                } else {
-                    PAWN_ATTACK_STRENGTH
-                },
-                entity_is_enemy: enemy.is_some(),
+            attacking_entity: *attacking_entity,
+            attack_for: if enemy.is_some() {
+                ENEMY_ATTACK_STRENGTH
+            } else {
+                PAWN_ATTACK_STRENGTH
             },
-        );
+            entity_is_enemy: enemy.is_some(),
+            target_is_enemy: attacking_is_enemy.is_some(),
+        });
 
         // Check the attacking_entity to let it know that we are attacking it, and if it's not attacking, make it attack us back
         // by firing an AttackEvent, which will be listened to and responded to accordingly
@@ -1016,17 +1104,19 @@ pub fn attack_pawn(
         });
     }
 
-    for (
-        _,
-        AttackMetadata {
-            attack_for,
-            attacking_entity,
-            entity,
-            entity_is_enemy,
-        },
-    ) in queued_attacks
+    if queued_attacks.is_empty() {
+        return;
+    }
+
+    for AttackMetadata {
+        attack_for,
+        attacking_entity,
+        entity,
+        entity_is_enemy,
+        ..
+    } in queued_attacks
     {
-        let Ok((_, _, mut pawn, _, _, _)) = q_pawns.get_mut(entity) else {
+        let Ok((_, _, mut pawn, _, _, _)) = q_pawns.get_mut(attacking_entity) else {
             // oops, what happened here? We should have a pawn but we don't. Reset the attacker to idle.
             commands
                 .entity(attacking_entity)
@@ -1047,8 +1137,8 @@ pub fn attack_pawn(
         if pawn.health <= attack_for {
             // whelp, this pawn is about to die. Despawn it and update the game resources
             // making sure to add it to the destroyed_pawns set so we don't try to attack it again
-            commands.entity(entity).despawn_recursive();
-            destroyed_pawns.insert(entity);
+            commands.entity(attacking_entity).despawn_recursive();
+            destroyed_pawns.insert(attacking_entity);
             if !entity_is_enemy {
                 game_resources.pawns = game_resources.pawns.saturating_sub(1);
             }

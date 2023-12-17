@@ -48,8 +48,10 @@ impl Plugin for PawnPlugin {
             .add_systems(
                 Update,
                 (
-                    systems::mine_stone,
                     systems::work_idle_pawns,
+                    systems::build_placeable,
+                    systems::pickup_stone_from_factory,
+                    systems::mine_stone,
                     systems::return_to_factory,
                 )
                     .chain()
@@ -68,7 +70,7 @@ impl Plugin for PawnPlugin {
             .add_systems(
                 Update,
                 (
-                    // systems::retry_pathfinding,
+                    systems::retry_pathfinding,
                     systems::enemy_search_for_factory,
                     systems::listen_for_pathfinding_answers,
                     systems::move_pawn,

@@ -49,6 +49,7 @@ macro_rules! placeables {
                 pub tileable: bool,
                 pub max_resources: usize,
                 pub current_resources: usize,
+                pub built: bool,
             }
 
             impl Default for $name {
@@ -61,6 +62,7 @@ macro_rules! placeables {
                         tileable: $tileable,
                         max_resources: 0,
                         current_resources: 0,
+                        built: false
                     }
                 }
             }
@@ -90,6 +92,30 @@ macro_rules! placeables {
                 match self {
                     $(
                         PlaceableType::$name(item) => item.placeable_on_wall,
+                    )*
+                }
+            }
+
+            pub fn get_current_resources(&self) -> usize {
+                match self {
+                    $(
+                        PlaceableType::$name(item) => item.current_resources,
+                    )*
+                }
+            }
+
+            pub fn set_current_resources(&mut self, amount: usize) {
+                match self {
+                    $(
+                        PlaceableType::$name(item) => item.current_resources = amount,
+                    )*
+                }
+            }
+
+            pub fn get_missing_resource_count(&self) -> usize {
+                match self {
+                    $(
+                        PlaceableType::$name(item) => item.max_resources - item.current_resources,
                     )*
                 }
             }

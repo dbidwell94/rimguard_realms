@@ -1332,7 +1332,7 @@ pub fn attack_pawn(
             // making sure to add it to the destroyed_pawns set so we don't try to attack it again
             commands.entity(attacking_entity).despawn_recursive();
             destroyed_pawns.insert(attacking_entity);
-            if !entity_is_enemy {
+            if entity_is_enemy {
                 game_resources.pawns = game_resources.pawns.saturating_sub(1);
             }
         }

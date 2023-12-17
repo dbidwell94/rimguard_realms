@@ -10,6 +10,7 @@ mod selectable;
 mod stone;
 mod ui;
 mod utils;
+mod turret;
 
 use assets::{DirtTile, GameAssets, GroundBase};
 use bevy::{asset::AssetMetaCheck, prelude::*, window::PrimaryWindow};

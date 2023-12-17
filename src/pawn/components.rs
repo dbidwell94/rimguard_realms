@@ -106,7 +106,7 @@ pub mod work_order {
             }),*
     ) => {
             $(
-                #[derive(Clone, Eq, PartialEq, Reflect)]
+                #[derive(Clone, Eq, PartialEq, Reflect, Debug)]
                 pub struct $name {
                     $(
                         pub $field: $ty
@@ -114,7 +114,7 @@ pub mod work_order {
                 }
             )*
 
-            #[derive(Component, Clone, Eq, PartialEq, Reflect)]
+            #[derive(Component, Clone, Eq, PartialEq, Reflect, Debug)]
             pub enum WorkOrder {
                 $(
                     $name($name),

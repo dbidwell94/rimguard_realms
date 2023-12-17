@@ -153,7 +153,10 @@ pub fn spawn_stone_tiles(
 }
 
 pub fn update_stone_sprite(
-    mut q_stone: Query<(&Stone, &StoneKind, &mut Handle<Image>, &mut Sprite), Changed<Stone>>,
+    mut q_stone: Query<
+        (&Stone, &StoneKind, &mut Handle<Image>, &mut Sprite),
+        Or<(Changed<Stone>, Added<Stone>)>,
+    >,
     rock_collection: Res<RockCollection>,
 ) {
     for (stone, kind, mut image, mut sprite) in &mut q_stone {
@@ -176,5 +179,53 @@ pub fn update_stone_sprite(
         };
 
         *image = rock_image;
+    }
+}
+
+pub fn listen_for_pawn_death(
+    mut commands: Commands,
+    mut pawn_death_event: EventReader<crate::pawn::PawnDeath>,
+    mut navmesh: ResMut<crate::navmesh::components::Navmesh>,
+    rock_collection: Res<RockCollection>,
+) {
+    for pawn_death in pawn_death_event.read() {
+        let stone_to_spawn = pawn_death.carried_resources;
+
+        // we aren't spawning any stone, so move to the next event
+        if stone_to_spawn < 1 {
+            continue;
+        }
+
+        let spawned_stone = commands
+            .spawn((
+                SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::WHITE,
+                        custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                        anchor: bevy::sprite::Anchor::BottomLeft,
+                        ..default()
+                    },
+                    texture: rock_collection.red_rock.get_large(),
+                    transform: Transform::from_translation(
+                        pawn_death
+                            .death_location_tile
+                            .tile_pos_to_world()
+                            .extend(0.5),
+                    ),
+                    ..default()
+                },
+                StoneKind::Red,
+                Stone {
+                    remaining_resources: stone_to_spawn,
+                },
+            ))
+            .id();
+
+        // update navmesh to include the new stone
+        let nav_tile = &mut navmesh.0[pawn_death.death_location_tile.x as usize]
+            [pawn_death.death_location_tile.y as usize];
+
+        nav_tile.walkable = false;
+        nav_tile.occupied_by.insert(spawned_stone);
     }
 }

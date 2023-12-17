@@ -11,7 +11,7 @@ pub struct Pawn {
     pub health: usize,
     pub max_health: usize,
     pub animation_timer: Timer,
-    pub mine_timer: Timer,
+    pub work_timer: Timer,
     pub search_timer: Timer,
     pub retry_pathfinding_timer: Timer,
     pub moving: bool,
@@ -30,17 +30,17 @@ pub struct HealthBundle {
 }
 
 #[derive(Bundle)]
-pub struct PawnBundle<T: Component + pawn_status::Status> {
+pub struct PawnBundle {
     pub character_facing: CharacterFacing,
     pub name: Name,
     pub sprite_bundle: SpriteSheetBundle,
     pub pawn: Pawn,
-    pub pawn_status: pawn_status::PawnStatus<T>,
+    pub pawn_status: pawn_status::PawnStatus,
     pub resources: CarriedResources,
     pub selectable: Selectable,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub struct CarriedResources(pub usize);
 
 pub mod pawn_status {
@@ -49,13 +49,19 @@ pub mod pawn_status {
     macro_rules! pawn_status {
         ($($name:ident),*) => {
             $(
-                #[derive(Component)]
+                #[derive(Clone, Eq, PartialEq, Debug, Reflect)]
                 pub struct $name;
-                impl Status for $name {}
             )*
 
+            #[derive(Component, Clone, Eq, PartialEq, Debug, Reflect)]
+            pub enum PawnStatus {
+                $(
+                    $name($name),
+                )*
+            }
+
             pub trait AddStatus {
-                fn add_status<T: 'static + Status>(&mut self, status: T) -> &mut Self;
+                fn add_status(&mut self, status: PawnStatus) -> &mut Self;
             }
 
             pub trait ClearStatus {
@@ -63,26 +69,19 @@ pub mod pawn_status {
             }
             impl ClearStatus for EntityCommands<'_, '_, '_> {
                 fn clear_status(&mut self) -> &mut Self {
-                    $(
-                        self.remove::<PawnStatus<$name>>();
-                    )*
+                    self.remove::<PawnStatus>();
                     self
                 }
             }
 
             impl AddStatus for EntityCommands<'_, '_, '_> {
-                fn add_status<T: 'static + Status>(&mut self, status: T) -> &mut Self {
+                fn add_status(&mut self, status: PawnStatus) -> &mut Self {
                     self.clear_status();
-                    self.try_insert(PawnStatus(Box::new(status)))
+                    self.try_insert(status)
                 }
             }
         }
     }
-
-    pub trait Status: Send + Sync {}
-
-    #[derive(Component)]
-    pub struct PawnStatus<T: Status + ?Sized>(pub Box<T>);
 
     pawn_status!(
         Idle,
@@ -107,22 +106,18 @@ pub mod work_order {
             }),*
     ) => {
             $(
-                #[derive(Component)]
+                #[derive(Clone, Eq, PartialEq, Reflect)]
                 pub struct $name {
                     $(
                         pub $field: $ty
                     ),*
                 }
-                impl OrderItem for $name {
-                    fn to_struct(&self) -> OrderType {
-                        OrderType::$name(self)
-                    }
-                }
             )*
 
-            pub enum OrderType<'a> {
+            #[derive(Component, Clone, Eq, PartialEq, Reflect)]
+            pub enum WorkOrder {
                 $(
-                    $name(&'a $name),
+                    $name($name),
                 )*
             }
 
@@ -131,35 +126,24 @@ pub mod work_order {
             }
 
             pub trait AddWorkOrder {
-                fn add_work_order<T: 'static + OrderItem>(&mut self, order: T) -> &mut Self;
+                fn add_work_order(&mut self, order: WorkOrder) -> &mut Self;
             }
 
             impl AddWorkOrder for EntityCommands<'_, '_, '_> {
-                fn add_work_order<T: 'static + OrderItem>(&mut self, order: T) -> &mut Self {
+                fn add_work_order(&mut self, order: WorkOrder) -> &mut Self {
                     self.clear_work_order();
-                    self.try_insert(WorkOrder(Box::new(order)))
+                    self.try_insert(order)
                 }
             }
 
             impl ClearWorkOrder for EntityCommands<'_, '_, '_> {
                 fn clear_work_order(&mut self) -> &mut Self {
-                    $(
-                        self.remove::<WorkOrder<$name>>();
-                    )*
+                    self.remove::<WorkOrder>();
                     self
                 }
             }
         };
     }
-
-    pub trait OrderItem: Sync + Send {
-        fn to_struct(&self) -> OrderType;
-    }
-
-    pub trait Queueable: OrderItem {}
-
-    #[derive(Component)]
-    pub struct WorkOrder<T: OrderItem + ?Sized>(pub Box<T>);
 
     work_orders!(
         struct MineStone {

@@ -24,8 +24,12 @@ impl Plugin for PawnPlugin {
             .init_resource::<WorkQueue>()
             .init_resource::<EnemyWave>()
             .register_type::<components::Pawn>()
+            .register_type::<components::work_order::WorkOrder>()
+            .register_type::<components::pawn_status::PawnStatus>()
+            .register_type::<components::CarriedResources>()
             .add_event::<SpawnPawnRequestEvent>()
             .add_event::<RequestWorkOrder>()
+            .add_event::<AttackEvent>()
             // setup systems scheduling
             .configure_sets(
                 Update,
@@ -57,7 +61,7 @@ impl Plugin for PawnPlugin {
                 (
                     systems::search_for_attack_target_pawn,
                     systems::attack_pawn,
-                    systems::update_pathfinding_to_pawn,
+                    // systems::update_pathfinding_to_pawn,
                 )
                     .chain()
                     .in_set(PawnSystemSet::Attack),
@@ -65,7 +69,7 @@ impl Plugin for PawnPlugin {
             .add_systems(
                 Update,
                 (
-                    systems::retry_pathfinding,
+                    // systems::retry_pathfinding,
                     systems::enemy_search_for_factory,
                     systems::listen_for_pathfinding_answers,
                     systems::move_pawn,
@@ -96,6 +100,12 @@ pub struct WorkQueue {
 
 #[derive(Event, Debug)]
 pub struct SpawnPawnRequestEvent;
+
+#[derive(Event, Debug)]
+pub struct AttackEvent {
+    pub attacker: Entity,
+    pub target: Entity,
+}
 
 #[derive(Event, Debug)]
 pub struct RequestWorkOrder {}

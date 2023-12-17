@@ -134,3 +134,9 @@ macro_rules! boxed {
         Box::new($expr)
     };
 }
+
+/// Check if an enum variant is equal to another enum variant
+/// ignoring their values
+pub fn variant_eq<T>(a: &T, b: &T) -> bool {
+    std::mem::discriminant(a) == std::mem::discriminant(b)
+}

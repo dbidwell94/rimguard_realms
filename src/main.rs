@@ -87,7 +87,7 @@ fn main() {
                 }),
             GameAssets,
             #[cfg(debug_assertions)]
-            FilterQueryInspectorPlugin::<With<placeable::components::PlaceableType>>::default(),
+            FilterQueryInspectorPlugin::<With<pawn::components::Pawn>>::default(),
         ))
         .add_plugins(InputManagerPlugin::<Input>::default())
         .add_plugins((

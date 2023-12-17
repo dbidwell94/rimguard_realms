@@ -22,7 +22,7 @@ use leafwing_input_manager::prelude::*;
 use rand::prelude::*;
 use std::collections::VecDeque;
 
-const INITIAL_PAWN_COUNT: usize = 10;
+const INITIAL_PAWN_COUNT: usize = 25;
 const MOVE_SPEED: f32 = 60.;
 const MAX_RESOURCES: usize = 15;
 const RESOURCE_GAIN_RATE: usize = 1;
@@ -516,8 +516,80 @@ pub fn mine_stone(
     }
 }
 
-pub fn pickup_stone_from_factory() {
-    todo!()
+pub fn pickup_stone_from_factory(
+    mut commands: Commands,
+    mut q_pawns: Query<
+        (
+            Entity,
+            &mut CarriedResources,
+            &WorkOrder,
+            &mut PawnStatus,
+            &Transform,
+        ),
+        Without<Enemy>,
+    >,
+    q_placeable: Query<&PlaceableType>,
+    q_factory: Query<&Transform, (With<Factory>, With<Placed>)>,
+    mut nav_request: EventWriter<PathfindRequest>,
+    mut game_resources: ResMut<GameResources>,
+) {
+    for (pawn_entity, mut carried_resources, order, mut status, pawn_transform) in &mut q_pawns {
+        // if we aren't picking up stone, we don't need to do anything. Continue to the next entity.
+        let WorkOrder::PickupStoneFromFactory(work_order::PickupStoneFromFactory { for_entity }) =
+            order
+        else {
+            continue;
+        };
+
+        let Ok(placeable) = q_placeable.get(*for_entity) else {
+            // something went wrong here. Clear work order, set status to idle, and continue to the next entity.
+            commands.entity(pawn_entity).clear_work_order();
+            *status = PawnStatus::Idle(pawn_status::Idle);
+            continue;
+        };
+
+        let Ok(factory_transform) = q_factory.get_single() else {
+            return;
+        };
+
+        // we are idle, we need to pathfind to the factory and move to the next entity
+        if variant_eq(&PawnStatus::Idle(pawn_status::Idle), &status) {
+            *status = PawnStatus::Pathfinding(pawn_status::Pathfinding);
+            nav_request.send(PathfindRequest {
+                start: pawn_transform.translation.world_pos_to_tile(),
+                end: factory_transform.translation.world_pos_to_tile(),
+                entity: pawn_entity,
+            });
+            continue;
+        }
+
+        let pawn_location_tile = pawn_transform.translation.world_pos_to_tile();
+        let factory_location_tile = factory_transform.translation.world_pos_to_tile();
+
+        let distance = (pawn_location_tile - factory_location_tile).length();
+
+        // we are still moving to the factory
+        if distance > 2. {
+            continue;
+        }
+
+        *status = PawnStatus::Idle(pawn_status::Idle);
+        commands
+            .entity(pawn_entity)
+            .add_work_order(WorkOrder::BuildItem(work_order::BuildItem {
+                item_entity: *for_entity,
+            }));
+
+        let required_resources = placeable.get_missing_resource_count();
+
+        let mut to_add_to_pawn = std::cmp::min(MAX_RESOURCES, required_resources);
+        if to_add_to_pawn > game_resources.stone {
+            to_add_to_pawn = game_resources.stone;
+        }
+
+        game_resources.stone -= to_add_to_pawn;
+        carried_resources.0 += to_add_to_pawn;
+    }
 }
 
 pub fn build_placeable(
@@ -534,9 +606,10 @@ pub fn build_placeable(
         Without<Enemy>,
     >,
     mut q_placeable: Query<
-        (Entity, &mut PlaceableType),
+        (Entity, &mut PlaceableType, &Transform),
         Without<crate::placeable::components::Built>,
     >,
+    mut nav_request: EventWriter<PathfindRequest>,
 ) {
     for (entity, transform, mut pawn, mut carried_resources, mut status, order) in &mut q_pawns {
         // If we don't have a build work order, skip this entity
@@ -544,7 +617,8 @@ pub fn build_placeable(
             continue;
         };
 
-        let Ok((_, mut placeable_type)) = q_placeable.get_mut(*item_entity) else {
+        let Ok((_, mut placeable_type, placeable_transform)) = q_placeable.get_mut(*item_entity)
+        else {
             // Not sure what happened here, but clear the status and work order and keep working.
             // The placeable does not exist in the query so it's not workable
             *status = PawnStatus::Idle(pawn_status::Idle);
@@ -569,7 +643,59 @@ pub fn build_placeable(
                     ));
                 continue;
             }
+            // we have the required resources. Pathfind to the placeable
+            let placeable_grid_pos = placeable_transform.translation.world_pos_to_tile();
+            let pawn_grid_pos = transform.translation.world_pos_to_tile();
+            *status = PawnStatus::Pathfinding(pawn_status::Pathfinding);
+            nav_request.send(PathfindRequest {
+                start: pawn_grid_pos,
+                end: placeable_grid_pos,
+                entity,
+            });
         }
+
+        // check to see if we are close enough to start work.
+        let distance_to_placeable = (transform.translation.world_pos_to_tile()
+            - placeable_transform.translation.world_pos_to_tile())
+        .length();
+        if distance_to_placeable < 1.5
+            && variant_eq(&PawnStatus::Moving(pawn_status::Moving), &status)
+        {
+            // we are close enough to start work. Set the status to building and continue to the next entity
+            *status = PawnStatus::Building(pawn_status::Building);
+        }
+        // if we are not in the building state, continue to the next entity
+        if !variant_eq(&PawnStatus::Building(pawn_status::Building), &status) {
+            continue;
+        }
+
+        // we are in the building state. Add pawn's resources to the placeable, subtract the resources from the pawn,
+        // and depending on if the build is finished set idle or get more resources from the factory.
+        let to_set = (placeable_type.get_current_resources() + carried_resources.0)
+            .clamp(0, placeable_type.get_max_resources());
+
+        let diff = to_set.saturating_sub(placeable_type.get_current_resources());
+
+        placeable_type.set_current_resources(to_set);
+
+        carried_resources.0 = diff;
+
+        // we are either going to factory or getting a new job
+        *status = PawnStatus::Idle(pawn_status::Idle);
+
+        // if we have finished building, set the status to idle and clear the work order
+        if placeable_type.get_current_resources() == placeable_type.get_max_resources() {
+            commands.entity(entity).clear_work_order();
+            continue;
+        }
+        // otherwise we need to get more resources from the factory
+        commands
+            .entity(entity)
+            .add_work_order(WorkOrder::PickupStoneFromFactory(
+                work_order::PickupStoneFromFactory {
+                    for_entity: *item_entity,
+                },
+            ));
     }
 }
 

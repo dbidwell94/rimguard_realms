@@ -290,3 +290,15 @@ pub fn add_unbuilt_to_navmesh(
         mesh_item.occupied_by.insert(entity);
     }
 }
+
+pub fn check_if_unbuilt_has_been_finished(
+    mut commands: Commands,
+    mut q_unbuilt: Query<(Entity, &mut Sprite, &PlaceableType), Without<Built>>,
+) {
+    for (entity, mut sprite, placeable) in &mut q_unbuilt {
+        if placeable.get_missing_resource_count() == 0 {
+            sprite.color = Color::WHITE;
+            commands.entity(entity).insert(Built);
+        }
+    }
+}

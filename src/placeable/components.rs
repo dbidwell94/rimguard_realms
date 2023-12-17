@@ -49,7 +49,6 @@ macro_rules! placeables {
                 pub tileable: bool,
                 pub max_resources: usize,
                 pub current_resources: usize,
-                pub built: bool,
             }
 
             impl Default for $name {
@@ -62,7 +61,6 @@ macro_rules! placeables {
                         tileable: $tileable,
                         max_resources: 0,
                         current_resources: 0,
-                        built: false
                     }
                 }
             }
@@ -108,6 +106,14 @@ macro_rules! placeables {
                 match self {
                     $(
                         PlaceableType::$name(item) => item.current_resources = amount,
+                    )*
+                }
+            }
+
+            pub fn get_max_resources(&self) -> usize {
+                match self {
+                    $(
+                        PlaceableType::$name(item) => item.max_resources,
                     )*
                 }
             }

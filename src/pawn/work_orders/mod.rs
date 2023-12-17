@@ -20,6 +20,7 @@ fn listen_for_placeable_events(
         for placeable in &event.0 {
             let mut placeable = placeable.clone();
             placeable.sprite_bundle.transform.translation.z = 1.0;
+            placeable.sprite_bundle.sprite.color = Color::rgba(1.0, 1.0, 1.0, 0.5);
 
             let placeable_grid_pos = placeable.sprite_bundle.transform.translation.xy();
             let placeable_grid_pos = GridPos::from_world_pos_vec(placeable_grid_pos);

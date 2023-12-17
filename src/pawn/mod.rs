@@ -59,9 +59,8 @@ impl Plugin for PawnPlugin {
             .add_systems(
                 Update,
                 (
-                    systems::search_for_attack_target_pawn,
                     systems::attack_pawn,
-                    // systems::update_pathfinding_to_pawn,
+                    systems::search_for_attack_target_pawn,
                 )
                     .chain()
                     .in_set(PawnSystemSet::Attack),

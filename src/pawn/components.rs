@@ -1,4 +1,4 @@
-use crate::{assets::CharacterFacing, selectable::Selectable};
+use crate::assets::CharacterFacing;
 use bevy::prelude::*;
 pub use pawn_status::ClearStatus;
 use std::collections::VecDeque;
@@ -37,7 +37,6 @@ pub struct PawnBundle {
     pub pawn: Pawn,
     pub pawn_status: pawn_status::PawnStatus,
     pub resources: CarriedResources,
-    pub selectable: Selectable,
 }
 
 #[derive(Component, Reflect)]

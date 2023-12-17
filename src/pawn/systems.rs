@@ -49,34 +49,36 @@ fn spawn_pawn_in_random_location(
     let y = factory_transform.translation().y + random_angle.sin() * radius;
 
     let pawn_entity = commands
-        .spawn((PawnBundle {
-            pawn: Pawn {
-                move_path: VecDeque::new(),
-                move_to: None,
-                health: 100,
-                max_health: 100,
-                animation_timer: Timer::from_seconds(0.125, TimerMode::Repeating),
-                work_timer: Timer::from_seconds(1., TimerMode::Once),
-                moving: false,
-                search_timer: Timer::from_seconds(PAWN_SEARCH_TIMER, TimerMode::Repeating),
-                retry_pathfinding_timer: Timer::from_seconds(1., TimerMode::Once),
-            },
-            character_facing: CharacterFacing::Left,
-            name: Name::new("Pawn"),
-            sprite_bundle: SpriteSheetBundle {
-                texture_atlas: pawn,
-                transform: Transform::from_translation(Vec3::new(x, y, 1.)),
-                sprite: TextureAtlasSprite {
-                    anchor: bevy::sprite::Anchor::BottomLeft,
-                    index: CharacterFacing::Left as usize,
-                    ..default()
+        .spawn((
+            PawnBundle {
+                pawn: Pawn {
+                    move_path: VecDeque::new(),
+                    move_to: None,
+                    health: 100,
+                    max_health: 100,
+                    animation_timer: Timer::from_seconds(0.125, TimerMode::Repeating),
+                    work_timer: Timer::from_seconds(0.25, TimerMode::Once),
+                    moving: false,
+                    search_timer: Timer::from_seconds(PAWN_SEARCH_TIMER, TimerMode::Repeating),
+                    retry_pathfinding_timer: Timer::from_seconds(1., TimerMode::Once),
                 },
-                ..Default::default()
+                character_facing: CharacterFacing::Left,
+                name: Name::new("Pawn"),
+                sprite_bundle: SpriteSheetBundle {
+                    texture_atlas: pawn,
+                    transform: Transform::from_translation(Vec3::new(x, y, 1.)),
+                    sprite: TextureAtlasSprite {
+                        anchor: bevy::sprite::Anchor::BottomLeft,
+                        index: CharacterFacing::Left as usize,
+                        ..default()
+                    },
+                    ..Default::default()
+                },
+                pawn_status: PawnStatus::Idle(Idle),
+                resources: CarriedResources(0),
             },
-            pawn_status: PawnStatus::Idle(Idle),
-            resources: CarriedResources(0),
-            selectable: Selectable,
-        },))
+            Selectable,
+        ))
         .id();
 
     commands
@@ -790,7 +792,7 @@ pub fn spawn_enemy_pawns(
                     max_health: 100,
                     search_timer: Timer::from_seconds(PAWN_SEARCH_TIMER, TimerMode::Repeating),
                     animation_timer: Timer::from_seconds(0.125, TimerMode::Repeating),
-                    work_timer: Timer::from_seconds(1., TimerMode::Once),
+                    work_timer: Timer::from_seconds(0.25, TimerMode::Once),
                     retry_pathfinding_timer: Timer::from_seconds(1., TimerMode::Once),
                     moving: false,
                 },
@@ -813,7 +815,6 @@ pub fn spawn_enemy_pawns(
                 },
                 pawn_status: PawnStatus::Idle(pawn_status::Idle),
                 resources: CarriedResources(0),
-                selectable: Selectable,
             })
             .insert(Enemy)
             .id();
@@ -944,7 +945,7 @@ pub fn attack_pawn(
         entity_is_enemy: bool,
     }
 
-    let mut queued_attacks: Vec<AttackMetadata> = Vec::new();
+    let mut queued_attacks: HashMap<Entity, AttackMetadata> = HashMap::new();
     let mut destroyed_pawns = HashSet::<Entity>::default();
 
     for (entity, order, mut pawn, mut status, transform, enemy) in &mut q_pawns {
@@ -993,16 +994,19 @@ pub fn attack_pawn(
         pawn.work_timer.reset();
 
         // queue an attack
-        queued_attacks.push(AttackMetadata {
+        queued_attacks.insert(
             entity,
-            attacking_entity: *attacking_entity,
-            attack_for: if enemy.is_some() {
-                ENEMY_ATTACK_STRENGTH
-            } else {
-                PAWN_ATTACK_STRENGTH
+            AttackMetadata {
+                entity,
+                attacking_entity: *attacking_entity,
+                attack_for: if enemy.is_some() {
+                    ENEMY_ATTACK_STRENGTH
+                } else {
+                    PAWN_ATTACK_STRENGTH
+                },
+                entity_is_enemy: enemy.is_some(),
             },
-            entity_is_enemy: enemy.is_some(),
-        });
+        );
 
         // Check the attacking_entity to let it know that we are attacking it, and if it's not attacking, make it attack us back
         // by firing an AttackEvent, which will be listened to and responded to accordingly
@@ -1012,12 +1016,15 @@ pub fn attack_pawn(
         });
     }
 
-    for AttackMetadata {
-        attack_for,
-        attacking_entity,
-        entity,
-        entity_is_enemy,
-    } in queued_attacks
+    for (
+        _,
+        AttackMetadata {
+            attack_for,
+            attacking_entity,
+            entity,
+            entity_is_enemy,
+        },
+    ) in queued_attacks
     {
         let Ok((_, _, mut pawn, _, _, _)) = q_pawns.get_mut(entity) else {
             // oops, what happened here? We should have a pawn but we don't. Reset the attacker to idle.

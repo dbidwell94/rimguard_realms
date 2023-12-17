@@ -1,6 +1,6 @@
 use super::components::pawn_status::{Idle, PawnStatus};
 use super::components::work_order::{AddWorkOrder, WorkOrder};
-use super::{AttackEvent, EnemyWave, SpawnPawnRequestEvent, WorkQueue};
+use super::{AttackEvent, EnemyWave, PawnDeath, SpawnPawnRequestEvent, WorkQueue};
 use crate::factory::components::{Factory, Placed};
 use crate::navmesh::components::{NavTileOccupant, Navmesh, PathfindAnswer, PathfindRequest};
 use crate::navmesh::prelude::*;
@@ -255,10 +255,11 @@ pub fn work_idle_pawns(
 pub fn listen_for_pathfinding_answers(
     mut commands: Commands,
     mut answer_events: EventReader<PathfindAnswer>,
-    mut q_pawns: Query<(&mut Pawn, &mut PawnStatus), With<Pawn>>,
+    mut q_pawns: Query<(&mut Pawn, &mut PawnStatus, Option<&WorkOrder>), With<Pawn>>,
+    mut work_queue: ResMut<WorkQueue>,
 ) {
     for evt in answer_events.read() {
-        let Ok((mut pawn, mut status)) = q_pawns.get_mut(evt.entity) else {
+        let Ok((mut pawn, mut status, work_order)) = q_pawns.get_mut(evt.entity) else {
             continue;
         };
 
@@ -274,6 +275,20 @@ pub fn listen_for_pathfinding_answers(
 
             *status = PawnStatus::Moving(pawn_status::Moving);
         } else {
+            // if we have a work order to build or get stone from factory, add it back to the work queue
+            if let Some(work_order) = work_order {
+                match work_order {
+                    WorkOrder::BuildItem(work_order::BuildItem { item_entity })
+                    | WorkOrder::PickupStoneFromFactory(work_order::PickupStoneFromFactory {
+                        for_entity: item_entity,
+                    }) => {
+                        work_queue.build_queue.push_back(*item_entity);
+                    }
+
+                    _ => {}
+                }
+            }
+
             commands
                 .entity(evt.entity)
                 .clear_work_order()
@@ -1235,12 +1250,15 @@ pub fn attack_pawn(
         &mut PawnStatus,
         &Transform,
         Option<&Enemy>,
+        &CarriedResources,
     )>,
-    q_all_pawns: Query<(Entity, &Transform, Option<&Enemy>), With<Pawn>>,
+    q_all_pawns: Query<(Entity, &Transform), With<Pawn>>,
     mut game_resources: ResMut<GameResources>,
     mut enemy_wave: ResMut<EnemyWave>,
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     mut attack_event_writer: EventWriter<AttackEvent>,
+    mut work_queue: ResMut<WorkQueue>,
+    mut pawn_death_writer: EventWriter<PawnDeath>,
 ) {
     #[derive(Debug)]
     struct AttackMetadata {
@@ -1253,7 +1271,7 @@ pub fn attack_pawn(
     let mut queued_attacks: Vec<AttackMetadata> = Vec::new();
     let mut destroyed_pawns = HashSet::<Entity>::default();
 
-    for (entity, order, mut pawn, mut status, transform, enemy) in &mut q_pawns {
+    for (entity, order, mut pawn, mut status, transform, enemy, _) in &mut q_pawns {
         // we are not set to attack a pawn, skip this entity
         let Some(WorkOrder::AttackPawn(work_order::AttackPawn {
             pawn_entity: attacking_entity,
@@ -1261,8 +1279,7 @@ pub fn attack_pawn(
         else {
             continue;
         };
-        let Ok((_, attacking_transform, attacking_is_enemy)) = q_all_pawns.get(*attacking_entity)
-        else {
+        let Ok((_, attacking_transform)) = q_all_pawns.get(*attacking_entity) else {
             // oh no, the pawn is missing. Set status to idle and clear work order
             *status = PawnStatus::Idle(pawn_status::Idle);
             commands.entity(entity).clear_work_order();
@@ -1331,7 +1348,9 @@ pub fn attack_pawn(
         ..
     } in queued_attacks
     {
-        let Ok((_, _, mut pawn, _, _, _)) = q_pawns.get_mut(attacking_entity) else {
+        let Ok((_, order, mut pawn, _, tx, _, carried_resources)) =
+            q_pawns.get_mut(attacking_entity)
+        else {
             // oops, what happened here? We should have a pawn but we don't. Reset the attacker to idle.
             commands
                 .entity(attacking_entity)
@@ -1356,6 +1375,28 @@ pub fn attack_pawn(
             destroyed_pawns.insert(attacking_entity);
             if entity_is_enemy {
                 game_resources.pawns = game_resources.pawns.saturating_sub(1);
+
+                // check the work order to see if it needs to be requeued
+                if let Some(order) = order {
+                    match order {
+                        WorkOrder::BuildItem(work_order::BuildItem { item_entity })
+                        | WorkOrder::PickupStoneFromFactory(PickupStoneFromFactory {
+                            for_entity: item_entity,
+                        }) => {
+                            // requeue the work order so it can be picked up by another pawn.
+                            work_queue.build_queue.push_back(*item_entity);
+                        }
+                        _ => {}
+                    }
+                }
+
+                pawn_death_writer.send(PawnDeath {
+                    pawn: attacking_entity,
+                    killer: entity,
+                    carried_resources: carried_resources.0,
+                    work_order: order.cloned(),
+                    death_location_tile: tx.translation.world_pos_to_tile(),
+                });
             } else {
                 enemy_wave.enemies = enemy_wave.enemies.saturating_sub(1);
             }

@@ -17,7 +17,9 @@ impl Plugin for StonePlugin {
             )
             .add_systems(
                 Update,
-                (systems::update_stone_sprite).run_if(in_state(GameState::Main)),
+                (systems::listen_for_pawn_death, systems::update_stone_sprite)
+                    .chain()
+                    .run_if(in_state(GameState::Main)),
             );
     }
 }

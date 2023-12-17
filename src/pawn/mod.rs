@@ -6,6 +6,8 @@ use crate::GameState;
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
+use self::components::work_order::WorkOrder;
+
 #[derive(SystemSet, Hash, Debug, Clone, Eq, PartialEq)]
 pub enum PawnSystemSet {
     First,
@@ -30,6 +32,7 @@ impl Plugin for PawnPlugin {
             .add_event::<SpawnPawnRequestEvent>()
             .add_event::<RequestWorkOrder>()
             .add_event::<AttackEvent>()
+            .add_event::<PawnDeath>()
             // setup systems scheduling
             .configure_sets(
                 Update,
@@ -105,6 +108,15 @@ pub struct SpawnPawnRequestEvent;
 pub struct AttackEvent {
     pub attacker: Entity,
     pub target: Entity,
+}
+
+#[derive(Event, Debug)]
+pub struct PawnDeath {
+    pub pawn: Entity,
+    pub carried_resources: usize,
+    pub killer: Entity,
+    pub work_order: Option<WorkOrder>,
+    pub death_location_tile: Vec2,
 }
 
 #[derive(Event, Debug)]

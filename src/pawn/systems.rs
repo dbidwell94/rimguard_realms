@@ -133,9 +133,10 @@ pub fn work_idle_pawns(
     >,
     q_stones: Query<Entity, With<StoneKind>>,
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
-    q_placeable: Query<Entity, With<PlaceableType>>,
+    q_placeable: Query<(Entity, &PlaceableType)>,
     (navmesh, mut work_queue): (Res<Navmesh>, ResMut<super::WorkQueue>),
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
+    game_resources: Res<GameResources>,
 ) {
     let navmesh_tiles = &navmesh.0;
     let Ok(factory_transform) = q_factory.get_single() else {
@@ -162,17 +163,21 @@ pub fn work_idle_pawns(
         let pawn_grid_location = transform.translation.world_pos_to_tile();
         // check build queue first
 
-        if let Some(placeable_entity) = work_queue.build_queue.pop_front() {
+        if let Some(placeable_entity) = work_queue.build_queue.front() {
             // If this if statement fails, then the placeable doesn't exist.
             // Odd, but move on and continue issuing commands
-            if let Ok(_) = q_placeable.get(placeable_entity) {
-                commands.entity(entity).add_work_order(WorkOrder::BuildItem(
-                    work_order::BuildItem {
-                        item_entity: placeable_entity,
-                    },
-                ));
+            if let Ok((_, placeable_type)) = q_placeable.get(*placeable_entity) {
+                // check if the pawn has enough resources to build the placeable
+                if resources.0 + game_resources.stone > placeable_type.get_missing_resource_count()
+                {
+                    commands.entity(entity).add_work_order(WorkOrder::BuildItem(
+                        work_order::BuildItem {
+                            item_entity: work_queue.build_queue.pop_front().unwrap(),
+                        },
+                    ));
 
-                continue;
+                    continue;
+                }
             };
         }
 
@@ -257,7 +262,10 @@ pub fn listen_for_pathfinding_answers(
             continue;
         };
 
-        if !variant_eq(&PawnStatus::Pathfinding(pawn_status::Pathfinding), &status) {
+        // if we are not pathfinding or repathing, continue to the next entity
+        if !variant_eq(&PawnStatus::Pathfinding(pawn_status::Pathfinding), &status)
+            && !variant_eq(&PawnStatus::Repathing(pawn_status::Repathing), &status)
+        {
             continue;
         }
 
@@ -282,10 +290,12 @@ pub fn move_pawn(
         &mut Transform,
         &PawnStatus,
         Option<&WorkOrder>,
+        Option<&Enemy>,
     )>,
     time: Res<Time>,
+    mut gizmos: Gizmos,
 ) {
-    for (entity, mut pawn, mut transform, status, order) in &mut q_pawns {
+    for (entity, mut pawn, mut transform, status, order, enemy) in &mut q_pawns {
         // cleanup pawns that are moving with no work order
         if variant_eq(&PawnStatus::Moving(pawn_status::Moving), status) && order.is_none() {
             commands
@@ -293,8 +303,10 @@ pub fn move_pawn(
                 .add_status(PawnStatus::Idle(pawn_status::Idle));
             continue;
         }
-        // The, stop all non-moving pawns
-        if !variant_eq(&PawnStatus::Moving(pawn_status::Moving), status) {
+        // The, stop all non-moving pawns, ignoring anything that is repathing
+        if !variant_eq(&PawnStatus::Moving(pawn_status::Moving), status)
+            && !variant_eq(&PawnStatus::Repathing(pawn_status::Repathing), status)
+        {
             pawn.moving = false;
             pawn.move_path.clear();
             continue;
@@ -310,6 +322,27 @@ pub fn move_pawn(
             pawn.moving = false;
             continue;
         };
+
+        if enemy.is_none() {
+            let mut previous = &path;
+            // show the pawn's path
+            for path_target in pawn.move_path.iter() {
+                let previous_world = previous.tile_pos_to_world();
+                let current_world = path_target.tile_pos_to_world();
+                gizmos.line_2d(
+                    previous_world,
+                    current_world,
+                    Color::Rgba {
+                        red: 1.,
+                        green: 1.,
+                        blue: 1.,
+                        alpha: 0.125,
+                    },
+                );
+                previous = path_target;
+            }
+        }
+
         let direction = (path - current_grid).normalize_or_zero();
         transform.translation += direction.extend(0.) * MOVE_SPEED * time.delta_seconds();
         pawn.moving = true;
@@ -849,11 +882,47 @@ pub fn retry_pathfinding(
             end: factory_pos,
             entity,
         });
-
-        info!("Pawn {:?} is retrying pathfinding", entity);
     }
 
     pathfinding_event_writer.send_batch(pathfinding_requests);
+}
+
+pub fn repath_if_navmesh_changes(
+    mut q_pawns: Query<(Entity, &Pawn, &mut PawnStatus)>,
+    navmesh: Res<Navmesh>,
+    mut nav_request: EventWriter<PathfindRequest>,
+) {
+    for (entity, pawn, mut status) in &mut q_pawns {
+        if pawn.move_path.is_empty() {
+            continue;
+        }
+
+        // ignore unless the status is moving or repathing
+        if !variant_eq(&PawnStatus::Moving(pawn_status::Moving), &status)
+            && !variant_eq(&PawnStatus::Repathing(pawn_status::Repathing), &status)
+        {
+            continue;
+        }
+
+        for Vec2 { x, y } in &pawn.move_path {
+            if !navmesh.0[*x as usize][*y as usize].walkable {
+                // we've already verified that the path is not empty, so we can unwrap here
+                let target_location = pawn.move_path.back().unwrap().clone();
+                let current_location = pawn.move_path.front().unwrap().clone();
+
+                *status = PawnStatus::Repathing(pawn_status::Repathing);
+
+                // request a path from the current location to the target location
+                nav_request.send(PathfindRequest {
+                    start: current_location,
+                    end: target_location,
+                    entity,
+                });
+
+                break;
+            }
+        }
+    }
 }
 
 pub fn search_for_attack_target_pawn(
@@ -1157,7 +1226,6 @@ pub fn attack_pawn(
         attacking_entity: Entity,
         attack_for: usize,
         entity_is_enemy: bool,
-        target_is_enemy: bool,
     }
 
     let mut queued_attacks: Vec<AttackMetadata> = Vec::new();
@@ -1188,7 +1256,7 @@ pub fn attack_pawn(
             // If our search time is finished, we need to update our pathfinding to the pawn we're attacking
             if pawn.search_timer.finished() {
                 let attacking_grid = attacking_transform.translation.world_pos_to_tile();
-                *status = PawnStatus::Pathfinding(pawn_status::Pathfinding);
+                *status = PawnStatus::Repathing(pawn_status::Repathing);
                 pathfinding_event_writer.send(PathfindRequest {
                     start: transform.translation.world_pos_to_tile(),
                     end: attacking_grid,
@@ -1219,7 +1287,6 @@ pub fn attack_pawn(
                 PAWN_ATTACK_STRENGTH
             },
             entity_is_enemy: enemy.is_some(),
-            target_is_enemy: attacking_is_enemy.is_some(),
         });
 
         // Check the attacking_entity to let it know that we are attacking it, and if it's not attacking, make it attack us back

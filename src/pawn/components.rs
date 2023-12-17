@@ -85,6 +85,7 @@ pub mod pawn_status {
     pawn_status!(
         Idle,
         Pathfinding,
+        Repathing,
         PathfindingError,
         Moving,
         Mining,

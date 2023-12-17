@@ -60,16 +60,15 @@ impl Plugin for PawnPlugin {
             // add attack systems
             .add_systems(
                 Update,
-                (
-                    systems::attack_pawn,
-                    systems::search_for_attack_target_pawn,
-                )
+                (systems::attack_pawn, systems::search_for_attack_target_pawn)
                     .chain()
                     .in_set(PawnSystemSet::Attack),
             )
             .add_systems(
                 Update,
                 (
+                    systems::repath_if_navmesh_changes
+                        .run_if(resource_changed::<crate::navmesh::Navmesh>()),
                     systems::retry_pathfinding,
                     systems::enemy_search_for_factory,
                     systems::listen_for_pathfinding_answers,

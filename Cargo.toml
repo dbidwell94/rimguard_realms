@@ -11,10 +11,10 @@ noisy_bevy = "0.5.0"
 rand = "0.8"
 leafwing-input-manager = "0.11"
 bevy_easings = "0.12"
-bevy_asset_loader = { version = "0.18", features = ["2d"] }
+bevy_asset_loader = { version = "0.19", features = ["2d"] }
 bevy-ui-dsl = "0.7"
 pathfinding = "4.4"
-bevy-inspector-egui = "0.21"
+bevy-inspector-egui = "0.22"
 bevy-trait-query = "0.4"
 derivative = "2.2"
 

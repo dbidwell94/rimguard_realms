@@ -13,17 +13,20 @@ pub mod rocks {
 
     impl Plugin for RockPlugin {
         fn build(&self, app: &mut App) {
-            app.add_collection_to_loading_state::<_, CappedRock>(GameState::Loading)
-                .add_collection_to_loading_state::<_, RedRock>(GameState::Loading)
-                .add_collection_to_loading_state::<_, SaltRock>(GameState::Loading)
-                .add_collection_to_loading_state::<_, StoneRock>(GameState::Loading)
-                .add_collection_to_loading_state::<_, TanRock>(GameState::Loading)
-                .add_systems(
-                    Update,
-                    init_rock_collection
-                        .run_if(in_state(GameState::Loading))
-                        .run_if(not(resource_exists::<RockCollection>())),
-                );
+            app.configure_loading_state(
+                LoadingStateConfig::new(GameState::Loading)
+                    .load_collection::<CappedRock>()
+                    .load_collection::<RedRock>()
+                    .load_collection::<SaltRock>()
+                    .load_collection::<StoneRock>()
+                    .load_collection::<TanRock>(),
+            )
+            .add_systems(
+                Update,
+                init_rock_collection
+                    .run_if(in_state(GameState::Loading))
+                    .run_if(not(resource_exists::<RockCollection>())),
+            );
         }
     }
 
@@ -260,9 +263,12 @@ pub mod trees {
 
     impl Plugin for TreePlugin {
         fn build(&self, app: &mut App) {
-            app.add_collection_to_loading_state::<_, FallTree>(GameState::Loading)
-                .add_collection_to_loading_state::<_, FruitTree>(GameState::Loading)
-                .add_collection_to_loading_state::<_, MossTree>(GameState::Loading);
+            app.configure_loading_state(
+                LoadingStateConfig::new(GameState::Loading)
+                    .load_collection::<FallTree>()
+                    .load_collection::<FruitTree>()
+                    .load_collection::<MossTree>(),
+            );
         }
     }
 
@@ -320,7 +326,9 @@ pub mod walls {
 
     impl Plugin for WallPlugin {
         fn build(&self, app: &mut App) {
-            app.add_collection_to_loading_state::<_, Wall>(GameState::Loading);
+            app.configure_loading_state(
+                LoadingStateConfig::new(GameState::Loading).load_collection::<Wall>(),
+            );
         }
     }
 }
@@ -427,7 +435,10 @@ pub struct GameAssets;
 impl Plugin for GameAssets {
     fn build(&self, app: &mut App) {
         app.add_plugins((rocks::RockPlugin, trees::TreePlugin, walls::WallPlugin))
-            .add_collection_to_loading_state::<_, GroundBase>(GameState::Loading)
-            .add_collection_to_loading_state::<_, MalePawns>(GameState::Loading);
+            .configure_loading_state(
+                LoadingStateConfig::new(GameState::Loading)
+                    .load_collection::<GroundBase>()
+                    .load_collection::<MalePawns>(),
+            );
     }
 }

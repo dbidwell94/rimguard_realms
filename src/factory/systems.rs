@@ -50,7 +50,7 @@ pub fn place_factory(
     q_factory: Query<(Entity, &GlobalTransform), (With<Factory>, Without<Placed>)>,
     input: Query<&ActionState<crate::Input>>,
     mut game_state: ResMut<NextState<GameState>>,
-    mut navmesh: ResMut<navmesh::components::Navmesh>,
+    mut navmesh: ResMut<navmesh::components::SpatialGrid>,
 ) {
     let Ok((factory_entity, factory_transform)) = q_factory.get_single() else {
         return;
@@ -67,30 +67,34 @@ pub fn place_factory(
             return;
         }
 
-        commands.entity(factory_entity).insert((Placed, GameTile));
+        let spatial_entity = navmesh.create_spatial_entity(
+            factory_entity,
+            GridPos::from_world_pos_vec(factory_transform.translation().truncate()),
+            false,
+            None,
+            Some((4, 4)),
+        );
+        commands
+            .entity(factory_entity)
+            .insert((Placed, GameTile, spatial_entity.watch()));
         commands.entity(factory_entity).remove::<AabbGizmo>();
         game_state.set(GameState::PawnSpawn);
-
-        // mark navmesh tiles as occupied
-        for x in x as usize..x as usize + FACTORY_SIZE {
-            for y in y as usize..y as usize + FACTORY_SIZE {
-                navmesh.0[x][y].walkable = false;
-            }
-        }
     }
 }
 
-fn check_spawn_bounds_by_navtiles(navmesh: &navmesh::components::Navmesh, x: f32, y: f32) -> bool {
-    let mut is_valid = true;
-
+fn check_spawn_bounds_by_navtiles(
+    navmesh: &navmesh::components::SpatialGrid,
+    x: f32,
+    y: f32,
+) -> bool {
     // check navmesh bounds for non-walkable tiles assuming the factory is anchored in the bottom left
     for x in x as usize..x as usize + FACTORY_SIZE {
         for y in y as usize..y as usize + FACTORY_SIZE {
-            if !navmesh.0[x][y].walkable {
-                is_valid = false;
+            if !navmesh.is_walkable(&GridPos::new(x as i32, y as i32)) {
+                return false;
             }
         }
     }
 
-    is_valid
+    true
 }

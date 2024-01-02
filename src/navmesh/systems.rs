@@ -6,7 +6,7 @@ use leafwing_input_manager::prelude::*;
 use pathfinding::prelude::*;
 
 pub fn debug_navmesh(
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
     mut toggle_debug: ResMut<ToggleNavmeshDebug>,
     mut gizmos: Gizmos,
     input: Query<&ActionState<crate::Input>>,
@@ -23,97 +23,98 @@ pub fn debug_navmesh(
         return;
     }
 
-    let max_weight = 2.;
+    for pos in navmesh.grid().keys() {
+        let tile_position = Vec2::new(pos.x as f32, pos.y as f32).tile_pos_to_world()
+            + Vec2::new(TILE_SIZE / 2., TILE_SIZE / 2.);
 
-    for (x, row) in navmesh.0.iter().enumerate() {
-        for (y, tile) in row.iter().enumerate() {
-            let tile_position = Vec2::new(x as f32, y as f32).tile_pos_to_world()
-                + Vec2::new(TILE_SIZE / 2., TILE_SIZE / 2.);
+        let walkable = navmesh.is_walkable(pos);
 
-            if !tile.walkable {
-                gizmos.rect_2d(
-                    tile_position,
-                    0.,
-                    Vec2::new(TILE_SIZE, TILE_SIZE),
-                    Color::RED,
-                );
-            } else {
-                let weight_color = Color::rgb(
-                    tile.weight / max_weight,
-                    tile.weight / max_weight,
-                    tile.weight / max_weight,
-                );
-                gizmos.rect_2d(
-                    tile_position,
-                    0.,
-                    Vec2::new(TILE_SIZE, TILE_SIZE),
-                    weight_color,
-                );
-            }
+        if !walkable {
+            gizmos.rect_2d(
+                tile_position,
+                0.,
+                Vec2::new(TILE_SIZE, TILE_SIZE),
+                Color::RED,
+            );
+        } else {
+            let weight_color = Color::GREEN;
+            gizmos.rect_2d(
+                tile_position,
+                0.,
+                Vec2::new(TILE_SIZE, TILE_SIZE),
+                weight_color,
+            );
         }
     }
 }
 
-
-
 pub fn listen_for_pathfinding_requests(
     mut pathfinding_event_reader: EventReader<PathfindRequest>,
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
     mut pathfinding_event_writer: EventWriter<PathfindAnswer>,
 ) {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    struct UsizeVec {
-        x: usize,
-        y: usize,
-    }
-    let navmesh = &navmesh.0;
+    let navmesh_grid = navmesh.grid();
     for request in pathfinding_event_reader.read() {
-        let Vec2 { x, y } = request.start;
-        let x = x as usize;
-        let y = y as usize;
-
-        let Vec2 { x: end_x, y: end_y } = request.end;
-        let end_x = end_x as usize;
-        let end_y = end_y as usize;
+        let GridPos { x: end_x, y: end_y } = request.end;
 
         let result = astar(
-            &UsizeVec { x, y },
-            |&UsizeVec { x, y }| {
-                let up = (x, y.saturating_add(1));
-                let down = (x, y.saturating_sub(1));
-                let left = (x.saturating_sub(1), y);
-                let right = (x.saturating_add(1), y);
+            &request.start,
+            |&GridPos { x, y }| {
+                let up = GridPos::new(x, y.saturating_add(1));
+                let down = GridPos::new(x, y.saturating_sub(1));
+                let left = GridPos::new(x.saturating_sub(1), y);
+                let right = GridPos::new(x.saturating_add(1), y);
 
-                let neighbors = [up, down, left, right]
+                [up, down, left, right]
                     .iter()
-                    .filter(|&(x, y)| {
-                        navmesh
-                            .get(*x)
-                            .and_then(|row| row.get(*y))
-                            .map(|tile| tile.walkable || (*x == end_x && *y == end_y))
+                    .filter(|&pos| {
+                        // check neighbor cell to see if it's walkable or it's the end cell
+                        navmesh_grid
+                            .get(pos)
+                            .map(|contents| {
+                                let mut walkable_array = contents.values().map(|v| v.walkable());
+                                (pos.x == end_x && pos.y == end_y) || !walkable_array.any(|v| !v)
+                            })
                             .unwrap_or(false)
                     })
-                    .map(|(x, y)| (UsizeVec { x: *x, y: *y }, 0)) // Modify this line
-                    .collect::<Vec<_>>();
-
-                neighbors
+                    .map(|pos| {
+                        (
+                            *pos,
+                            // Add the total cell walk cost to the distance required to get to the end cell
+                            navmesh.walk_cost_at(pos)
+                                + (Vec2::new(pos.x as f32, pos.y as f32)
+                                    - Vec2::new(end_x as f32, end_y as f32))
+                                .length() as i32,
+                        )
+                    })
+                    .collect::<Vec<_>>()
             },
             |&tile| {
                 (Vec2::new(tile.x as f32, tile.y as f32) - Vec2::new(end_x as f32, end_y as f32))
                     .length() as i32
             },
-            |UsizeVec { x, y }| x == &end_x && y == &end_y,
+            |GridPos { x, y }| x == &end_x && y == &end_y,
         )
-        .map(|(data, _)| {
-            data.iter()
-                .map(|item| Vec2::new(item.x as f32, item.y as f32))
-                .collect::<Vec<_>>()
-        });
+        .map(|(data, _)| data);
 
         pathfinding_event_writer.send(PathfindAnswer {
             path: result,
             entity: request.entity,
             target: request.end,
         });
+    }
+}
+
+pub fn update_spatial_grid(
+    q_spatial: Query<(Entity, &Transform), (With<SpatialWatch>, Changed<Transform>)>,
+    mut navmesh: ResMut<SpatialGrid>,
+) {
+    for (entity, transform) in q_spatial.iter() {
+        if let Some(ent) = navmesh.get(
+            &entity,
+            GridPos::from_world_pos_vec(transform.translation.truncate()),
+        ) {
+            navmesh.update(ent, transform.translation.truncate());
+        }
     }
 }

@@ -64,7 +64,7 @@ impl TranslationHelper for Vec2 {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Reflect)]
 pub struct GridPos {
     pub x: i32,
     pub y: i32,

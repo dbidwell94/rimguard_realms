@@ -1,13 +1,12 @@
-use crate::assets::CharacterFacing;
+use crate::{assets::CharacterFacing, utils::GridPos};
 use bevy::prelude::*;
-pub use pawn_status::ClearStatus;
 use std::collections::VecDeque;
 pub use work_order::ClearWorkOrder;
 
 #[derive(Component, Reflect)]
 pub struct Pawn {
-    pub move_path: VecDeque<Vec2>,
-    pub move_to: Option<Vec2>,
+    pub move_path: VecDeque<GridPos>,
+    pub move_to: Option<GridPos>,
     pub health: usize,
     pub max_health: usize,
     pub animation_timer: Timer,

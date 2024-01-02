@@ -71,7 +71,7 @@ impl Plugin for PawnPlugin {
                 Update,
                 (
                     systems::repath_if_navmesh_changes
-                        .run_if(resource_changed::<crate::navmesh::Navmesh>()),
+                        .run_if(resource_changed::<crate::navmesh::SpatialGrid>()),
                     systems::retry_pathfinding,
                     systems::enemy_search_for_factory,
                     systems::listen_for_pathfinding_answers,

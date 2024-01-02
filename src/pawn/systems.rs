@@ -2,8 +2,8 @@ use super::components::pawn_status::{Idle, PawnStatus};
 use super::components::work_order::{AddWorkOrder, WorkOrder};
 use super::{AttackEvent, EnemyWave, PawnDeath, SpawnPawnRequestEvent, WorkQueue};
 use crate::factory::components::{Factory, Placed};
-use crate::navmesh::components::{NavTileOccupant, Navmesh, PathfindAnswer, PathfindRequest};
-use crate::navmesh::prelude::*;
+use crate::navmesh::components::{PathfindAnswer, PathfindRequest, SpatialGrid};
+use crate::navmesh::utils::get_pathing;
 use crate::pawn::components::pawn_status::AddStatus;
 use crate::pawn::components::work_order::PickupStoneFromFactory;
 use crate::placeable::prelude::PlaceableType;
@@ -31,13 +31,14 @@ const PAWN_ATTACK_STRENGTH: usize = 7;
 const ENEMY_TILE_RANGE: usize = 10;
 const ENEMY_ATTACK_STRENGTH: usize = 10;
 const PAWN_SEARCH_TIMER: f32 = 0.25;
+const RESOURCE_MAX_SEARCH_RANGE: usize = 25;
 
 fn spawn_pawn_in_random_location(
     commands: &mut Commands,
     pawn_res: &Res<MalePawns>,
     game_resources: &mut ResMut<GameResources>,
     factory_transform: &GlobalTransform,
-    _: &Res<Navmesh>,
+    _: &Res<SpatialGrid>,
 ) {
     let radius = TILE_SIZE * 5.;
     let mut rng = rand::thread_rng();
@@ -105,7 +106,7 @@ pub fn initial_pawn_spawn(
     pawn_res: Res<MalePawns>,
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
     mut game_resources: ResMut<GameResources>,
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     let Ok(factory_transform) = q_factory.get_single() else {
@@ -134,33 +135,20 @@ pub fn work_idle_pawns(
     q_stones: Query<Entity, With<StoneKind>>,
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
     q_placeable: Query<(Entity, &PlaceableType)>,
-    (navmesh, mut work_queue): (Res<Navmesh>, ResMut<super::WorkQueue>),
+    (navmesh, mut work_queue): (Res<SpatialGrid>, ResMut<super::WorkQueue>),
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     game_resources: Res<GameResources>,
 ) {
-    let navmesh_tiles = &navmesh.0;
     let Ok(factory_transform) = q_factory.get_single() else {
         return;
     };
-
-    fn check_for_stones(
-        entity_set: &HashSet<Entity>,
-        q_stones: &Query<Entity, With<StoneKind>>,
-    ) -> (bool, Option<Entity>) {
-        for entity in entity_set.iter() {
-            if q_stones.get(*entity).is_ok() {
-                return (true, Some(*entity));
-            }
-        }
-        (false, None)
-    }
 
     for (entity, transform, resources, status) in &mut q_pawns {
         if !variant_eq(status, &PawnStatus::Idle(Idle)) {
             continue;
         }
 
-        let pawn_grid_location = transform.translation.world_pos_to_tile();
+        let pawn_grid_location = GridPos::from_world_pos_vec(transform.translation.truncate());
         // check build queue first
 
         if let Some(placeable_entity) = work_queue.build_queue.front() {
@@ -188,54 +176,49 @@ pub fn work_idle_pawns(
                 .add_status(PawnStatus::Pathfinding(pawn_status::Pathfinding))
                 .add_work_order(WorkOrder::ReturnToFactory(work_order::ReturnToFactory {}));
 
-            let grid_location = transform.translation.world_pos_to_tile();
-            let factory_grid = factory_transform.translation().world_pos_to_tile();
-
             pathfinding_event_writer.send(PathfindRequest {
-                start: grid_location,
-                end: factory_grid,
+                start: pawn_grid_location,
+                end: GridPos::from_world_pos_vec(factory_transform.translation().truncate()),
                 entity,
             });
 
             continue;
         }
 
-        let grid_x = pawn_grid_location.x as usize;
-        let grid_y = pawn_grid_location.y as usize;
-
         // search the navmesh for non-walkable tiles, and see if the entities within are in q_stones
-        let stone_location;
-        let stone_entity;
-        let mut search_radius: usize = 1;
+        let mut stone_location = None;
+        let mut stone_entity = None;
+        let mut search_radius: i32 = 5;
 
         // Find the closest stone to the pawn ensuring that the pawn can reach the stone by pathfinding
+        // todo! fix this!
         'base: loop {
-            for x in (grid_x.saturating_sub(search_radius))..=(grid_x + search_radius) {
-                for y in (grid_y.saturating_sub(search_radius))..=(grid_y + search_radius) {
-                    if let Some(tile) = navmesh_tiles.get(x).and_then(|row| row.get(y)) {
-                        let (found, stone_ent) = check_for_stones(&tile.occupied_by, &q_stones);
+            if search_radius > RESOURCE_MAX_SEARCH_RANGE as i32 {
+                break 'base;
+            }
+            let found_stones = navmesh
+                .get_entities_in_range(&pawn_grid_location, search_radius)
+                .filter(|ent| q_stones.contains(*ent.entity()));
 
-                        if !tile.walkable
-                            && found
-                            && get_pathing(
-                                PathfindRequest {
-                                    start: Vec2::new(x as f32, y as f32),
-                                    end: Vec2::new(grid_x as f32, grid_y as f32),
-                                    entity,
-                                },
-                                &navmesh,
-                            )
-                            .is_some()
-                        {
-                            stone_entity = stone_ent;
-                            stone_location = Some(Vec2::new(x as f32, y as f32));
-                            break 'base;
-                        }
-                    }
+            for stone in found_stones {
+                if get_pathing(
+                    PathfindRequest {
+                        start: pawn_grid_location,
+                        end: *stone.position(),
+                        entity,
+                    },
+                    &navmesh,
+                )
+                .is_some()
+                {
+                    stone_entity = Some(*stone.entity());
+                    stone_location = Some(*stone.position());
+                    break 'base;
                 }
             }
-            search_radius += 1;
+            search_radius += 5;
         }
+
         if let Some(stone_location) = stone_location {
             commands
                 .entity(entity)
@@ -308,9 +291,8 @@ pub fn move_pawn(
         Option<&Enemy>,
     )>,
     time: Res<Time>,
-    mut gizmos: Gizmos,
 ) {
-    for (entity, mut pawn, mut transform, status, order, enemy) in &mut q_pawns {
+    for (entity, mut pawn, mut transform, status, order, _) in &mut q_pawns {
         // cleanup pawns that are moving with no work order
         if variant_eq(&PawnStatus::Moving(pawn_status::Moving), status) && order.is_none() {
             commands
@@ -338,30 +320,10 @@ pub fn move_pawn(
             continue;
         };
 
-        if enemy.is_none() {
-            let mut previous = &path;
-            // show the pawn's path
-            for path_target in pawn.move_path.iter() {
-                let previous_world = previous.tile_pos_to_world();
-                let current_world = path_target.tile_pos_to_world();
-                gizmos.line_2d(
-                    previous_world,
-                    current_world,
-                    Color::Rgba {
-                        red: 1.,
-                        green: 1.,
-                        blue: 1.,
-                        alpha: 0.125,
-                    },
-                );
-                previous = path_target;
-            }
-        }
-
-        let direction = (path - current_grid).normalize_or_zero();
+        let direction = (path.to_vec2() - current_grid).normalize_or_zero();
         transform.translation += direction.extend(0.) * MOVE_SPEED * time.delta_seconds();
         pawn.moving = true;
-        if (path - current_grid).length() < 0.2 {
+        if (path.to_vec2() - current_grid).length() < 0.2 {
             pawn.move_to = pawn.move_path.pop_front();
         }
     }
@@ -488,7 +450,7 @@ pub fn mine_stone(
         Without<Enemy>,
     >,
     mut q_stones: Query<(Entity, &mut Stone, &Transform), With<StoneKind>>,
-    mut navmesh: ResMut<Navmesh>,
+    mut navmesh: ResMut<SpatialGrid>,
 ) {
     let mut destroyed_stones = HashSet::<Entity>::default();
 
@@ -549,10 +511,8 @@ pub fn mine_stone(
             }
 
             let stone_grid = stone_transform.translation.world_pos_to_tile();
-            navmesh.0[stone_grid.x as usize][stone_grid.y as usize].walkable = true;
-            navmesh.0[stone_grid.x as usize][stone_grid.y as usize]
-                .occupied_by
-                .remove(&stone_entity);
+
+            navmesh.remove(&stone_entity, &GridPos::from_tile_pos_vec(stone_grid));
 
             commands.entity(stone_entity).despawn_recursive();
             commands
@@ -605,8 +565,8 @@ pub fn pickup_stone_from_factory(
         if variant_eq(&PawnStatus::Idle(pawn_status::Idle), &status) {
             *status = PawnStatus::Pathfinding(pawn_status::Pathfinding);
             nav_request.send(PathfindRequest {
-                start: pawn_transform.translation.world_pos_to_tile(),
-                end: factory_transform.translation.world_pos_to_tile(),
+                start: GridPos::from_world_pos_vec(pawn_transform.translation.truncate()),
+                end: GridPos::from_world_pos_vec(factory_transform.translation.truncate()),
                 entity: pawn_entity,
             });
             continue;
@@ -667,7 +627,7 @@ pub fn build_placeable(
     >,
     mut nav_request: EventWriter<PathfindRequest>,
 ) {
-    for (entity, transform, mut pawn, mut carried_resources, mut status, order) in &mut q_pawns {
+    for (entity, transform, _, mut carried_resources, mut status, order) in &mut q_pawns {
         // If we don't have a build work order, skip this entity
         let WorkOrder::BuildItem(work_order::BuildItem { item_entity }) = order else {
             continue;
@@ -704,8 +664,8 @@ pub fn build_placeable(
             let pawn_grid_pos = transform.translation.world_pos_to_tile();
             *status = PawnStatus::Pathfinding(pawn_status::Pathfinding);
             nav_request.send(PathfindRequest {
-                start: pawn_grid_pos,
-                end: placeable_grid_pos,
+                start: GridPos::from_tile_pos_vec(pawn_grid_pos),
+                end: GridPos::from_tile_pos_vec(placeable_grid_pos),
                 entity,
             });
         }
@@ -793,8 +753,8 @@ pub fn return_to_factory(
         if variant_eq(&PawnStatus::Idle(pawn_status::Idle), &pawn_status) {
             *pawn_status = PawnStatus::Pathfinding(pawn_status::Pathfinding);
             pathfinding_event_writer.send(PathfindRequest {
-                start: transform.translation.world_pos_to_tile(),
-                end: factory_grid,
+                start: GridPos::from_world_pos_vec(transform.translation.truncate()),
+                end: GridPos::from_tile_pos_vec(factory_grid),
                 entity: pawn_entity,
             });
             continue;
@@ -818,7 +778,7 @@ pub fn listen_for_spawn_pawn_event(
     q_factory: Query<&GlobalTransform, (With<Factory>, With<Placed>)>,
     mut game_resources: ResMut<GameResources>,
     mut spawn_pawn_event_reader: EventReader<SpawnPawnRequestEvent>,
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
 ) {
     let Ok(factory_transform) = q_factory.get_single() else {
         return;
@@ -898,11 +858,9 @@ pub fn retry_pathfinding(
 
         commands.entity(entity).clear_work_order();
 
-        let pawn_pos = pawn_transform.translation.world_pos_to_tile();
-        let factory_pos = factory_transform.translation().world_pos_to_tile();
         pathfinding_requests.push(PathfindRequest {
-            start: pawn_pos,
-            end: factory_pos,
+            start: GridPos::from_world_pos_vec(pawn_transform.translation.truncate()),
+            end: GridPos::from_world_pos_vec(factory_transform.translation().truncate()),
             entity,
         });
     }
@@ -912,7 +870,7 @@ pub fn retry_pathfinding(
 
 pub fn repath_if_navmesh_changes(
     mut q_pawns: Query<(Entity, &Pawn, &mut PawnStatus)>,
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
     mut nav_request: EventWriter<PathfindRequest>,
 ) {
     for (entity, pawn, mut status) in &mut q_pawns {
@@ -927,8 +885,8 @@ pub fn repath_if_navmesh_changes(
             continue;
         }
 
-        for Vec2 { x, y } in &pawn.move_path {
-            if !navmesh.0[*x as usize][*y as usize].walkable {
+        for grid_pos in &pawn.move_path {
+            if !navmesh.is_walkable(&grid_pos) {
                 // we've already verified that the path is not empty, so we can unwrap here
                 let target_location = pawn.move_path.back().unwrap().clone();
                 let current_location = pawn.move_path.front().unwrap().clone();
@@ -954,7 +912,7 @@ pub fn search_for_attack_target_pawn(
     q_enemies: Query<(Entity, &Pawn, &Transform, Option<&WorkOrder>), With<Enemy>>,
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     mut work_queue: ResMut<WorkQueue>,
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
 ) {
     #[derive(Debug)]
     struct PawnAttacking {
@@ -973,7 +931,7 @@ pub fn search_for_attack_target_pawn(
             impl ReadOnlyWorldQuery,
         >,
         attack_map: &mut HashMap<Entity, Vec<PawnAttacking>>,
-        navmesh: &Res<Navmesh>,
+        navmesh: &Res<SpatialGrid>,
     ) {
         for (pawn_entity, pawn, transform, work_order) in search_query {
             // we already have an attack work order, skip this pawn
@@ -994,8 +952,8 @@ pub fn search_for_attack_target_pawn(
                     (enemy_position - pawn_position).length() <= ENEMY_TILE_RANGE as f32 && {
                         let path = get_pathing(
                             PathfindRequest {
-                                start: pawn_position,
-                                end: enemy_position,
+                                start: GridPos::from_tile_pos_vec(pawn_position),
+                                end: GridPos::from_tile_pos_vec(enemy_position),
                                 entity: pawn_entity,
                             },
                             &navmesh,
@@ -1050,8 +1008,8 @@ pub fn search_for_attack_target_pawn(
                  }| {
                     (
                         PathfindRequest {
-                            start: pawn_location,
-                            end: target_location,
+                            start: GridPos::from_tile_pos_vec(pawn_location),
+                            end: GridPos::from_tile_pos_vec(target_location),
                             entity: pawn_entity,
                         },
                         target_entity,
@@ -1095,7 +1053,7 @@ pub fn spawn_enemy_pawns(
     mut enemy_wave: ResMut<EnemyWave>,
     pawn_res: Res<MalePawns>,
     time: Res<Time>,
-    navmesh: Res<Navmesh>,
+    navmesh: Res<SpatialGrid>,
     input: Query<&ActionState<crate::Input>>,
     mouse_position: Res<CursorPosition>,
 ) {
@@ -1189,15 +1147,13 @@ pub fn spawn_enemy_pawns(
             };
 
             // check navtile to ensure it's walkable
-            if let Some(NavTileOccupant { walkable, .. }) = navmesh
-                .0
-                .get(temp_location.0)
-                .and_then(|o| o.get(temp_location.1))
-            {
-                if *walkable {
-                    spawn_location = Vec2::new(temp_location.0 as f32, temp_location.1 as f32);
-                    break;
-                }
+
+            if navmesh.is_walkable(&GridPos::new(
+                temp_location.0 as i32,
+                temp_location.1 as i32,
+            )) {
+                spawn_location = Vec2::new(temp_location.0 as f32, temp_location.1 as f32);
+                break;
             }
         }
 
@@ -1225,11 +1181,9 @@ pub fn enemy_search_for_factory(
             continue;
         }
 
-        let grid_location = transform.translation.world_pos_to_tile();
-
         nav_request.send(PathfindRequest {
-            start: grid_location,
-            end: factory.translation().world_pos_to_tile(),
+            start: GridPos::from_world_pos_vec(transform.translation.truncate()),
+            end: GridPos::from_world_pos_vec(factory.translation().truncate()),
             entity,
         });
 
@@ -1294,11 +1248,10 @@ pub fn attack_pawn(
             // we are not close enough to attack, continue OR update pathfinding
             // If our search time is finished, we need to update our pathfinding to the pawn we're attacking
             if pawn.search_timer.finished() {
-                let attacking_grid = attacking_transform.translation.world_pos_to_tile();
                 *status = PawnStatus::Repathing(pawn_status::Repathing);
                 pathfinding_event_writer.send(PathfindRequest {
-                    start: transform.translation.world_pos_to_tile(),
-                    end: attacking_grid,
+                    start: GridPos::from_world_pos_vec(transform.translation.truncate()),
+                    end: GridPos::from_world_pos_vec(attacking_transform.translation.truncate()),
                     entity,
                 });
             }

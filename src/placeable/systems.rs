@@ -86,7 +86,7 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
         Res<crate::CursorPosition>,
         ResMut<super::ZoopStartLocation>,
         Res<super::CurrentPlaceableItem>,
-        Res<crate::navmesh::Navmesh>,
+        Res<crate::navmesh::SpatialGrid>,
         ResMut<super::ItemGridPlacement>,
     ),
     q_input: Query<&ActionState<crate::Input>>,
@@ -192,14 +192,13 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
         let mut bundles = Vec::new();
         for tile_pos in vectors_to_place {
             // first, ensure tile is walkable
-            let nav_tile = &navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
-            if !nav_tile.walkable {
+            if !navmesh.is_walkable(&tile_pos) {
                 continue;
             }
-            let nav_tile_has_wall = nav_tile.occupied_by.iter().any(|entity| {
+            let nav_tile_has_wall = navmesh.get_entities_at(&tile_pos).any(|entity| {
                 // if the entity exists in this query, it's a wall
 
-                let Ok(placeable_item) = q_walls.get(*entity) else {
+                let Ok(placeable_item) = q_walls.get(*entity.entity()) else {
                     return false;
                 };
                 if let PlaceableType::Wall(_) = placeable_item {
@@ -243,21 +242,26 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
 }
 
 pub fn handle_built_added(
-    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    mut commands: Commands,
+    mut navmesh: ResMut<crate::navmesh::SpatialGrid>,
     q_added: Query<(Entity, &GlobalTransform), Added<Built>>,
 ) {
     for (entity, transform) in &q_added {
         let tile_pos = transform.translation().world_pos_to_tile();
 
-        let mesh_item = &mut navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
-
-        mesh_item.occupied_by.insert(entity);
-        mesh_item.walkable = false;
+        let spatial_entity = navmesh.create_spatial_entity(
+            entity,
+            GridPos::from_tile_pos_vec(tile_pos),
+            false,
+            None,
+            None,
+        );
+        commands.entity(entity).insert(spatial_entity.watch());
     }
 }
 
 pub fn handle_built_removed(
-    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    mut navmesh: ResMut<crate::navmesh::SpatialGrid>,
     mut removed_components: RemovedComponents<Built>,
     q_placeables: Query<(Entity, &GlobalTransform), With<PlaceableType>>,
     q_built: Query<Entity, With<Built>>,
@@ -265,29 +269,25 @@ pub fn handle_built_removed(
     for entity in removed_components.read() {
         if let Ok((_, transform)) = q_placeables.get(entity) {
             let tile_pos = transform.translation().world_pos_to_tile();
+            let grid_pos = GridPos::from_tile_pos_vec(tile_pos);
 
-            let mesh_item = &mut navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
-
-            mesh_item.occupied_by.remove(&entity);
-            // we have a built entity still in this nav tile, we don't want to make it walkable
-            if q_built.get(entity).is_ok() {
-                continue;
-            }
-            mesh_item.walkable = true;
+            navmesh.remove(&entity, &grid_pos);
         }
     }
 }
 
 pub fn add_unbuilt_to_navmesh(
-    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    mut commands: Commands,
+    mut navmesh: ResMut<crate::navmesh::SpatialGrid>,
     q_unbuilt: Query<(Entity, &GlobalTransform), (Without<Built>, Added<PlaceableType>)>,
 ) {
     for (entity, transform) in &q_unbuilt {
-        let tile_pos = transform.translation().world_pos_to_tile();
+        let grid_pos = GridPos::from_world_pos_vec(transform.translation().truncate());
 
-        let mesh_item = &mut navmesh.0[tile_pos.x as usize][tile_pos.y as usize];
+        let spatial_entity =
+            navmesh.create_spatial_entity(entity, grid_pos, true, None, Some((1, 1)));
 
-        mesh_item.occupied_by.insert(entity);
+        commands.entity(entity).insert(spatial_entity.watch());
     }
 }
 

@@ -15,7 +15,6 @@ bevy_asset_loader = { version = "0.19", features = ["2d"] }
 bevy-ui-dsl = "0.7"
 pathfinding = "4.4"
 bevy-inspector-egui = "0.22"
-bevy-trait-query = "0.4"
 derivative = "2.2"
 
 [profile.dev.package."*"]

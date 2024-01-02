@@ -8,9 +8,9 @@ mod pawn;
 mod placeable;
 mod selectable;
 mod stone;
+mod turret;
 mod ui;
 mod utils;
-mod turret;
 
 use assets::{DirtTile, GameAssets, GroundBase};
 use bevy::{asset::AssetMetaCheck, prelude::*, window::PrimaryWindow};
@@ -20,7 +20,7 @@ use bevy_inspector_egui::quick::FilterQueryInspectorPlugin;
 use leafwing_input_manager::{axislike::VirtualAxis, prelude::*};
 use noisy_bevy::simplex_noise_2d_seeded;
 use rand::prelude::*;
-use utils::TranslationHelper;
+use utils::{GridPos, TranslationHelper};
 
 #[cfg(target_arch = "wasm32")]
 const SIZE: usize = 128;
@@ -182,7 +182,7 @@ pub fn build_map(
     mut world_noise: ResMut<WorldNoise>,
     asset_server: Res<AssetServer>,
     dirt_texture: Res<GroundBase>,
-    mut navmesh: ResMut<navmesh::components::Navmesh>,
+    mut navmesh: ResMut<navmesh::components::SpatialGrid>,
 ) {
     // commands.remove_resource::<bevy::ecs::event::EventUpdateSignal>();
     let mut camera_bundle = Camera2dBundle::default();
@@ -356,17 +356,18 @@ fn spawn_world_tiles(
     base_world: &Vec<Vec<f32>>,
     asset_server: &Res<AssetServer>,
     dirt_texture: &Res<GroundBase>,
-    navmesh: &mut ResMut<navmesh::components::Navmesh>,
+    navmesh: &mut ResMut<navmesh::components::SpatialGrid>,
 ) {
     for x in 0..SIZE {
         for y in 0..SIZE {
             let seed_value = &base_world[x][y];
 
-            let nav_tile = &mut navmesh.0[x][y];
+            let entity;
+            let walk_cost;
 
             if (&DIRT_CUTOFF..&GRASS_CUTOFF).contains(&seed_value) {
                 // Dirt
-                let dirt_entity = commands
+                entity = commands
                     .spawn((
                         TileType::Dirt,
                         SpriteSheetBundle {
@@ -381,13 +382,10 @@ fn spawn_world_tiles(
                     ))
                     .id();
 
-                nav_tile.walkable = true;
-                nav_tile.weight = 1.;
-                nav_tile.occupied_by.insert(dirt_entity);
-            }
-            if seed_value >= &GRASS_CUTOFF {
+                walk_cost = 1;
+            } else if seed_value >= &GRASS_CUTOFF {
                 // Grass
-                let grass_entity = commands
+                entity = commands
                     .spawn((
                         TileType::Grass,
                         SpriteBundle {
@@ -406,10 +404,18 @@ fn spawn_world_tiles(
                     ))
                     .id();
 
-                nav_tile.walkable = true;
-                nav_tile.weight = 2.;
-                nav_tile.occupied_by.insert(grass_entity);
+                walk_cost = 2;
+            } else {
+                continue;
             }
+            let spatial_entity = navmesh.create_spatial_entity(
+                entity,
+                GridPos::new(x as i32, y as i32),
+                true,
+                Some(walk_cost),
+                None,
+            );
+            commands.entity(entity).insert(spatial_entity.watch());
         }
     }
 }

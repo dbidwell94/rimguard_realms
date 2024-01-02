@@ -4,8 +4,6 @@ mod systems;
 use crate::GameState;
 use bevy::prelude::*;
 
-pub use components::*;
-
 pub struct FactoryPlugin;
 
 impl Plugin for FactoryPlugin {

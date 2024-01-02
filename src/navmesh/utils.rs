@@ -1,53 +1,52 @@
-use super::{Navmesh, PathfindRequest};
+use crate::utils::GridPos;
+
+use super::{PathfindRequest, SpatialGrid};
 use bevy::prelude::*;
 use pathfinding::prelude::*;
 
-pub fn get_pathing(request: PathfindRequest, navmesh: &Res<Navmesh>) -> Option<Vec<Vec2>> {
-    let Vec2 { x, y } = request.start;
-    let start_x = x as usize;
-    let start_y = y as usize;
+pub fn get_pathing(request: PathfindRequest, navmesh: &Res<SpatialGrid>) -> Option<Vec<GridPos>> {
+    let navmesh_grid = navmesh.grid();
 
-    let Vec2 { x: end_x, y: end_y } = request.end;
-    let end_x = end_x as usize;
-    let end_y = end_y as usize;
+    let GridPos { x: end_x, y: end_y } = request.end;
 
     let result = astar(
-        &(start_x, start_y),
-        |&(x, y)| {
-            let up = (x, y.saturating_add(1));
-            let down = (x, y.saturating_sub(1));
-            let left = (x.saturating_sub(1), y);
-            let right = (x.saturating_add(1), y);
+        &request.start,
+        |&GridPos { x, y }| {
+            let up = GridPos::new(x, y.saturating_add(1));
+            let down = GridPos::new(x, y.saturating_sub(1));
+            let left = GridPos::new(x.saturating_sub(1), y);
+            let right = GridPos::new(x.saturating_add(1), y);
 
-            let neighbors = [up, down, left, right]
+            [up, down, left, right]
                 .iter()
-                .filter(|&(x, y)| {
-                    navmesh
-                        .0
-                        .get(*x)
-                        .and_then(|row| row.get(*y))
-                        .map(|tile| {
-                            tile.walkable
-                                || (*x == end_x && *y == end_y)
-                                || (*x == start_x && *y == start_y)
+                .filter(|&pos| {
+                    // check neighbor cell to see if it's walkable or it's the end cell
+                    navmesh_grid
+                        .get(pos)
+                        .map(|contents| {
+                            let mut walkable_array = contents.values().map(|v| v.walkable());
+                            (pos.x == end_x && pos.y == end_y) || !walkable_array.any(|v| !v)
                         })
                         .unwrap_or(false)
                 })
-                .map(|(x, y)| ((*x, *y), 0)) // Modify this line
-                .collect::<Vec<_>>();
-
-            neighbors
+                .map(|pos| {
+                    (
+                        *pos,
+                        // Add the total cell walk cost to the distance required to get to the end cell
+                        navmesh.walk_cost_at(pos)
+                            + (Vec2::new(pos.x as f32, pos.y as f32)
+                                - Vec2::new(end_x as f32, end_y as f32))
+                            .length() as i32,
+                    )
+                })
+                .collect::<Vec<_>>()
         },
-        |&(x, y)| {
-            (Vec2::new(x as f32, y as f32) - Vec2::new(end_x as f32, end_y as f32)).length() as i32
+        |&tile| {
+            (Vec2::new(tile.x as f32, tile.y as f32) - Vec2::new(end_x as f32, end_y as f32))
+                .length() as i32
         },
-        |(x, y)| x == &end_x && y == &end_y,
+        |GridPos { x, y }| x == &end_x && y == &end_y,
     )
-    .map(|(data, _)| {
-        data.iter()
-            .map(|item| Vec2::new(item.0 as f32, item.1 as f32))
-            .collect::<Vec<_>>()
-    });
-
+    .map(|(data, _)| data);
     result
 }

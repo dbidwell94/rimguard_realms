@@ -1,14 +1,15 @@
 pub mod components;
 pub mod systems;
-mod utils;
+pub mod utils;
+
+use crate::utils::GridPos;
 
 use self::components::{PathfindAnswer, PathfindRequest, ToggleNavmeshDebug};
 use bevy::prelude::*;
-pub use components::Navmesh;
+pub use components::SpatialGrid;
 
 pub mod prelude {
     pub use super::components::*;
-    pub use super::utils::get_pathing;
 }
 
 #[derive(SystemSet, Hash, Debug, Clone, Eq, PartialEq)]
@@ -22,7 +23,8 @@ pub struct NavmeshPlugin;
 
 impl Plugin for NavmeshPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Navmesh>()
+        app.register_type::<GridPos>()
+            .init_resource::<SpatialGrid>()
             .init_resource::<ToggleNavmeshDebug>()
             .configure_sets(
                 Update,
@@ -38,6 +40,7 @@ impl Plugin for NavmeshPlugin {
                 (
                     systems::debug_navmesh,
                     systems::listen_for_pathfinding_requests,
+                    systems::update_spatial_grid,
                 )
                     .in_set(NavmeshSystemSet::Update),
             )

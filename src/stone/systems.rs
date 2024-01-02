@@ -70,7 +70,7 @@ pub fn spawn_stone_tiles(
     rock_collection: Res<RockCollection>,
     world_noise: Res<WorldNoise>,
     mut game_state: ResMut<NextState<GameState>>,
-    mut navmesh: ResMut<crate::navmesh::components::Navmesh>,
+    mut navmesh: ResMut<crate::navmesh::components::SpatialGrid>,
 ) {
     let mut perlin_location = Vec2::new(0., 0.);
 
@@ -85,7 +85,7 @@ pub fn spawn_stone_tiles(
             perlin_location.x = offset_x as f32;
             perlin_location.y = offset_y as f32;
 
-            let nav_tile = &mut navmesh.0[x][y];
+            // let nav_tile = &mut navmesh.0[x][y];
 
             let noise_value =
                 simplex_noise_2d_seeded(perlin_location / PERLIN_DIVIDER, world_noise.seed);
@@ -143,8 +143,16 @@ pub fn spawn_stone_tiles(
                     ))
                     .id();
 
-                nav_tile.walkable = false;
-                nav_tile.occupied_by.insert(stone_entity);
+                // update navmesh to include the new stone
+                let spatial_entity = navmesh.create_spatial_entity(
+                    stone_entity,
+                    GridPos::new(x as i32, y as i32),
+                    false,
+                    None,
+                    Some((1, 1)),
+                );
+
+                commands.entity(stone_entity).insert(spatial_entity.watch());
             }
         }
     }
@@ -185,7 +193,7 @@ pub fn update_stone_sprite(
 pub fn listen_for_pawn_death(
     mut commands: Commands,
     mut pawn_death_event: EventReader<crate::pawn::PawnDeath>,
-    mut navmesh: ResMut<crate::navmesh::components::Navmesh>,
+    mut navmesh: ResMut<crate::navmesh::components::SpatialGrid>,
     rock_collection: Res<RockCollection>,
 ) {
     for pawn_death in pawn_death_event.read() {
@@ -222,10 +230,16 @@ pub fn listen_for_pawn_death(
             .id();
 
         // update navmesh to include the new stone
-        let nav_tile = &mut navmesh.0[pawn_death.death_location_tile.x as usize]
-            [pawn_death.death_location_tile.y as usize];
+        let spatial_entity = navmesh.create_spatial_entity(
+            spawned_stone,
+            GridPos::from_tile_pos_vec(pawn_death.death_location_tile),
+            false,
+            None,
+            Some((1, 1)),
+        );
 
-        nav_tile.walkable = false;
-        nav_tile.occupied_by.insert(spawned_stone);
+        commands
+            .entity(spawned_stone)
+            .insert(spatial_entity.watch());
     }
 }

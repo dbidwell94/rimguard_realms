@@ -14,7 +14,7 @@ fn listen_for_placeable_events(
     mut commands: Commands,
     mut event_listener: EventReader<RequestPlacementEvent>,
     mut work_orders: ResMut<super::WorkQueue>,
-    mut navmesh: ResMut<crate::navmesh::Navmesh>,
+    mut navmesh: ResMut<crate::navmesh::SpatialGrid>,
 ) {
     for event in event_listener.read() {
         for placeable in &event.0 {
@@ -28,9 +28,10 @@ fn listen_for_placeable_events(
             let entity = commands.spawn(placeable).id();
             work_orders.build_queue.push_back(entity);
 
-            navmesh.0[placeable_grid_pos.x as usize][placeable_grid_pos.y as usize]
-                .occupied_by
-                .insert(entity);
+            let spatial_entity =
+                navmesh.create_spatial_entity(entity, placeable_grid_pos, true, None, None);
+
+            commands.entity(entity).insert(spatial_entity.watch());
         }
     }
 }

@@ -89,6 +89,8 @@ impl SpatialGrid {
     }
 
     pub fn update(&mut self, mut entity: SpatialEntity, world_pos: Vec2) {
+        let _span = info_span!("SpatialGrid::update").entered();
+
         let new_pos = GridPos::from_world_pos_vec(world_pos);
 
         if new_pos != entity.position {
@@ -119,6 +121,8 @@ impl SpatialGrid {
         &self,
         position: &GridPos,
     ) -> impl std::iter::Iterator<Item = &SpatialEntity> {
+        let _span = info_span!("SpatialGrid::get_entities_at").entered();
+
         let iter = self
             .grid
             .get(position)
@@ -133,6 +137,8 @@ impl SpatialGrid {
         position: &GridPos,
         range: i32,
     ) -> impl std::iter::Iterator<Item = &SpatialEntity> {
+        let _span = info_span!("SpatialGrid::get_entities_in_range").entered();
+
         let mut to_return = HashSet::new();
 
         for x in position.x - range..=position.x + range {
@@ -147,6 +153,8 @@ impl SpatialGrid {
     }
 
     pub fn walk_cost_at(&self, pos: &GridPos) -> i32 {
+        let _span = info_span!("SpatialGrid::walk_cost_at").entered();
+
         self.grid
             .get(pos)
             .map(|map| map.values().map(|e| e.move_cost).sum())
@@ -154,6 +162,8 @@ impl SpatialGrid {
     }
 
     pub fn is_walkable(&self, pos: &GridPos) -> bool {
+        let _span = info_span!("SpatialGrid::is_walkable").entered();
+
         self.grid
             .get(pos)
             .map(|map| map.values().all(|e| e.walkable))

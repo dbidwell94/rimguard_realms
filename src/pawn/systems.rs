@@ -139,7 +139,6 @@ pub fn work_idle_pawns(
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     game_resources: Res<GameResources>,
 ) {
-    let _span = info_span!("work_idle_pawns").entered();
     let Ok(factory_transform) = q_factory.get_single() else {
         return;
     };
@@ -193,31 +192,35 @@ pub fn work_idle_pawns(
 
         // Find the closest stone to the pawn ensuring that the pawn can reach the stone by pathfinding
         // todo! fix this!
-        'base: loop {
-            if search_radius > RESOURCE_MAX_SEARCH_RANGE as i32 {
-                break 'base;
-            }
-            let found_stones = navmesh
-                .get_entities_in_range(&pawn_grid_location, search_radius)
-                .filter(|ent| q_stones.contains(*ent.entity()));
+        {
+            let _span = info_span!("work_idle_pawns::search_for_stones_loop").entered();
 
-            for stone in found_stones {
-                if get_pathing(
-                    PathfindRequest {
-                        start: pawn_grid_location,
-                        end: *stone.position(),
-                        entity,
-                    },
-                    &navmesh,
-                )
-                .is_some()
-                {
-                    stone_entity = Some(*stone.entity());
-                    stone_location = Some(*stone.position());
+            'base: loop {
+                if search_radius > RESOURCE_MAX_SEARCH_RANGE as i32 {
                     break 'base;
                 }
+                let found_stones = navmesh
+                    .get_entities_in_range(&pawn_grid_location, search_radius)
+                    .filter(|ent| q_stones.contains(*ent.entity()));
+
+                for stone in found_stones {
+                    if get_pathing(
+                        PathfindRequest {
+                            start: pawn_grid_location,
+                            end: *stone.position(),
+                            entity,
+                        },
+                        &navmesh,
+                    )
+                    .is_some()
+                    {
+                        stone_entity = Some(*stone.entity());
+                        stone_location = Some(*stone.position());
+                        break 'base;
+                    }
+                }
+                search_radius += 5;
             }
-            search_radius += 5;
         }
 
         if let Some(stone_location) = stone_location {

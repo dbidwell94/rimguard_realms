@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.12", features = ["wayland"] }
-noisy_bevy = "0.5.0"
+noisy_bevy = "0.5"
 rand = "0.8"
 leafwing-input-manager = "0.11"
 bevy_easings = "0.12"
@@ -25,5 +25,6 @@ debug = false
 opt-level = 1
 
 [profile.release]
-lto = "thin"
-strip = "symbols"
+# lto = "thin"
+# strip = "symbols"
+debug = true

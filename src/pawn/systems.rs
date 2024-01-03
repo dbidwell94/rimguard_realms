@@ -139,6 +139,7 @@ pub fn work_idle_pawns(
     mut pathfinding_event_writer: EventWriter<PathfindRequest>,
     game_resources: Res<GameResources>,
 ) {
+    let _span = info_span!("work_idle_pawns").entered();
     let Ok(factory_transform) = q_factory.get_single() else {
         return;
     };

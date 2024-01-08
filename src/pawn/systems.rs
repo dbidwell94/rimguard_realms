@@ -1,5 +1,6 @@
 use super::components::pawn_status::{Idle, PawnStatus};
 use super::components::work_order::{AddWorkOrder, WorkOrder};
+use super::utils::*;
 use super::{AttackEvent, EnemyWave, PawnDeath, SpawnPawnRequestEvent, WorkQueue};
 use crate::factory::components::{Factory, Placed};
 use crate::navmesh::components::{PathfindAnswer, PathfindRequest, SpatialGrid};
@@ -203,19 +204,15 @@ pub fn work_idle_pawns(
                     .get_entities_in_range(&pawn_grid_location, search_radius)
                     .filter(|ent| q_stones.contains(*ent.entity()));
 
-                for stone in found_stones {
-                    if get_pathing(
-                        PathfindRequest {
-                            start: pawn_grid_location,
-                            end: *stone.position(),
-                            entity,
-                        },
+                for stone_spatial_entity in found_stones {
+                    if let Some(stone) = find_closest_stone(
+                        &q_stones,
+                        &pawn_grid_location,
+                        stone_spatial_entity,
                         &navmesh,
-                    )
-                    .is_some()
-                    {
-                        stone_entity = Some(*stone.entity());
-                        stone_location = Some(*stone.position());
+                    ) {
+                        stone_entity = Some(stone);
+                        stone_location = Some(stone_spatial_entity.position());
                         break 'base;
                     }
                 }
@@ -232,7 +229,7 @@ pub fn work_idle_pawns(
                 }));
             pathfinding_event_writer.send(PathfindRequest {
                 start: pawn_grid_location,
-                end: stone_location,
+                end: *stone_location,
                 entity,
             });
         }
@@ -961,6 +958,7 @@ pub fn search_for_attack_target_pawn(
                                 entity: pawn_entity,
                             },
                             &navmesh,
+                            false
                         );
                         path.is_some() && path.unwrap().len() <= ENEMY_TILE_RANGE
                     }

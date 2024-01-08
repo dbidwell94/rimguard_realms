@@ -152,6 +152,21 @@ impl SpatialGrid {
         to_return.into_iter()
     }
 
+    pub fn find_at(
+        &self,
+        pos: &GridPos,
+        predicate: impl Fn(&SpatialEntity) -> bool,
+    ) -> Option<&SpatialEntity> {
+        self.grid
+            .get(pos)
+            .and_then(|map| map.values().find(|e| predicate(e)))
+    }
+
+    /// Check the grid to see if there are entities at a given position
+    pub fn is_valid_pos(&self, pos: &GridPos) -> bool {
+        self.grid.contains_key(pos)
+    }
+
     pub fn walk_cost_at(&self, pos: &GridPos) -> i32 {
         let _span = info_span!("SpatialGrid::walk_cost_at").entered();
 

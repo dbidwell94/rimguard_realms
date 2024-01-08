@@ -4,7 +4,11 @@ use super::{PathfindRequest, SpatialGrid};
 use bevy::prelude::*;
 use pathfinding::prelude::*;
 
-pub fn get_pathing(request: PathfindRequest, navmesh: &Res<SpatialGrid>) -> Option<Vec<GridPos>> {
+pub fn get_pathing(
+    request: PathfindRequest,
+    navmesh: &Res<SpatialGrid>,
+    ignore_non_walkable: bool,
+) -> Option<Vec<GridPos>> {
     let navmesh_grid = navmesh.grid();
 
     let GridPos { x: end_x, y: end_y } = request.end;
@@ -24,7 +28,9 @@ pub fn get_pathing(request: PathfindRequest, navmesh: &Res<SpatialGrid>) -> Opti
                     navmesh_grid
                         .get(pos)
                         .map(|contents| {
-                            let mut walkable_array = contents.values().map(|v| v.walkable());
+                            let mut walkable_array = contents
+                                .values()
+                                .map(|v| ignore_non_walkable || v.walkable());
                             (pos.x == end_x && pos.y == end_y) || !walkable_array.any(|v| !v)
                         })
                         .unwrap_or(false)

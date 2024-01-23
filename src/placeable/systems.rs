@@ -195,17 +195,22 @@ pub fn populate_item_grid_placement_res_and_send_spawn_event(
             if !navmesh.is_walkable(&tile_pos) {
                 continue;
             }
-            let nav_tile_has_wall = navmesh.get_entities_at(&tile_pos).any(|entity| {
-                // if the entity exists in this query, it's a wall
+            let nav_tile_has_wall = navmesh
+                .get_entities_at(&tile_pos)
+                .map(|mut iter| {
+                    iter.any(|entity| {
+                        // if the entity exists in this query, it's a wall
 
-                let Ok(placeable_item) = q_walls.get(*entity.entity()) else {
-                    return false;
-                };
-                if let PlaceableType::Wall(_) = placeable_item {
-                    return true;
-                }
-                return false;
-            });
+                        let Ok(placeable_item) = q_walls.get(*entity.entity()) else {
+                            return false;
+                        };
+                        if let PlaceableType::Wall(_) = placeable_item {
+                            return true;
+                        }
+                        return false;
+                    })
+                })
+                .unwrap_or_default();
 
             // if the tile is a wall, and the item is not placeable on a wall, skip it
             if nav_tile_has_wall && !item.placeable.placeable_on_wall() {

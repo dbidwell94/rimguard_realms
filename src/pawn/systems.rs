@@ -199,27 +199,45 @@ pub fn work_idle_pawns(
                 if search_radius > RESOURCE_MAX_SEARCH_RANGE as i32 {
                     break 'base;
                 }
-                let found_stones = navmesh
+                let Some(found_stone) = navmesh
                     .get_entities_in_range(&pawn_grid_location, search_radius)
-                    .filter(|ent| q_stones.contains(*ent.entity()));
+                    .filter(|ent| q_stones.contains(*ent.entity()))
+                    .next()
+                else {
+                    search_radius += 10;
+                    continue;
+                };
 
-                for stone in found_stones {
-                    if get_pathing(
-                        PathfindRequest {
-                            start: pawn_grid_location,
-                            end: *stone.position(),
-                            entity,
-                        },
-                        &navmesh,
-                    )
-                    .is_some()
-                    {
-                        stone_entity = Some(*stone.entity());
-                        stone_location = Some(*stone.position());
-                        break 'base;
-                    }
+                let PathfindAnswer { path, .. } = navmesh.get_path(
+                    PathfindRequest {
+                        entity: Entity::PLACEHOLDER,
+                        start: pawn_grid_location,
+                        end: *found_stone.position(),
+                    },
+                    |mut iter| iter.any(|ent| ent.walkable() || q_stones.contains(*ent.entity())),
+                );
+
+                let Some(path) = path else {
+                    search_radius += 10;
+                    continue;
+                };
+
+                // walk the path and find the first stone (that will indicate that we can path to the stone as everything)
+                for grid_pos in path {
+                    let Some(spatial_item) = navmesh
+                        .get_entities_at(&grid_pos)
+                        .map(|mut iter| iter.find(|ent| q_stones.contains(*ent.entity())))
+                        .flatten()
+                    else {
+                        continue;
+                    };
+
+                    stone_location = Some(grid_pos);
+                    stone_entity = Some(spatial_item.entity());
+                    break 'base;
                 }
-                search_radius += 5;
+
+                search_radius += 10;
             }
         }
 
@@ -228,7 +246,7 @@ pub fn work_idle_pawns(
                 .entity(entity)
                 .add_status(PawnStatus::Pathfinding(pawn_status::Pathfinding))
                 .add_work_order(WorkOrder::MineStone(work_order::MineStone {
-                    stone_entity: stone_entity.unwrap(),
+                    stone_entity: *stone_entity.unwrap(),
                 }));
             pathfinding_event_writer.send(PathfindRequest {
                 start: pawn_grid_location,

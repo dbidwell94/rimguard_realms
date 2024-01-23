@@ -90,6 +90,15 @@ impl GridPos {
         let tile_pos_vec = world_pos.world_pos_to_tile();
         Self::from_tile_pos_vec(tile_pos_vec)
     }
+
+    pub fn distance(&self, other: Self) -> f32 {
+        // a^2 + b^2 = c^2
+        // c = sqrt(a^2 + b^2)
+        // c = (a^2 + b^2).sqrt()
+        let a = (self.x - other.x).abs();
+        let b = (self.y - other.y).abs();
+        ((a * a + b * b) as f32).sqrt()
+    }
 }
 
 impl std::ops::Add for GridPos {

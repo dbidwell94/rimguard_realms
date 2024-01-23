@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::utils::*;
 use bevy::{
     prelude::*,
@@ -120,16 +122,12 @@ impl SpatialGrid {
     pub fn get_entities_at(
         &self,
         position: &GridPos,
-    ) -> impl std::iter::Iterator<Item = &SpatialEntity> {
+    ) -> Option<bevy::utils::hashbrown::hash_map::Values<Entity, SpatialEntity>> {
         let _span = info_span!("SpatialGrid::get_entities_at").entered();
 
-        let iter = self
-            .grid
-            .get(position)
-            .map(|map| map.values().collect::<HashSet<_>>())
-            .unwrap_or_default();
+        let iter = self.grid.get(position).map(|map| map.values().into_iter());
 
-        iter.into_iter()
+        iter
     }
 
     pub fn get_entities_in_range(
@@ -168,6 +166,49 @@ impl SpatialGrid {
             .get(pos)
             .map(|map| map.values().all(|e| e.walkable))
             .unwrap_or(false)
+    }
+
+    pub fn get_path<
+        FindFunc: Fn(bevy::utils::hashbrown::hash_map::Values<Entity, SpatialEntity>) -> bool,
+    >(
+        &self,
+        request: PathfindRequest,
+        include: FindFunc,
+    ) -> PathfindAnswer {
+        use pathfinding::prelude::*;
+        let _span = info_span!("SpatialGrid::get_path").entered();
+
+        let result = astar(
+            &request.start,
+            |p| {
+                let mut successors = Vec::new();
+                for x in p.x - 1..=p.x + 1 {
+                    for y in p.y - 1..=p.y + 1 {
+                        if x == p.x && y == p.y {
+                            continue;
+                        }
+                        let pos = GridPos::new(x, y);
+
+                        let Some(iterator) = self.get_entities_at(&pos) else {
+                            continue;
+                        };
+
+                        if include(iterator) {
+                            successors.push((pos, 1));
+                        }
+                    }
+                }
+                successors
+            },
+            |p| p.distance(request.end) as i32,
+            |p| *p == request.end,
+        );
+
+        PathfindAnswer {
+            path: result.map(|(path, _)| path),
+            entity: request.entity,
+            target: request.end,
+        }
     }
 }
 
